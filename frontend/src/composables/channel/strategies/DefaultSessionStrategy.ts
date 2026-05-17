@@ -1,0 +1,223 @@
+import type { SessionStrategy } from '../types'
+import type { AssistantBlock, AssistantMessage, AssistantToolEvent } from '@ce/components/assistant-stream/types'
+import { createTrace, tracedFetch, createLogger } from '@ce/utils/obs'
+import type { Ref } from 'vue'
+
+interface HistoryStep {
+  id?: number
+  step_number?: number
+  step_type?: string
+  tool_name?: string
+  input?: string
+  output?: string
+  duration_ms?: number
+  status?: string
+}
+
+interface HistoryTurn {
+  id?: number
+  turn_number?: number
+  user_input?: string
+  ai_output?: string
+  duration_ms?: number
+  status?: string
+  error?: string
+  steps?: HistoryStep[]
+}
+
+export interface DefaultSessionStrategyOptions {
+  /**
+   * Reactive ref to the current session ID (null = not yet created).
+   */
+  sessionIdRef: Ref<number | null>
+  /**
+   * Reactive ref to whether the current session is active.
+   */
+  activeRef: Ref<boolean>
+  /**
+   * Payload for POST /api/sessions when no session exists yet.
+   * Accepts a getter so callers can pass a reactive computed value.
+   */
+  createPayload: (() => Record<string, unknown> | null) | Record<string, unknown> | null
+  /**
+   * Additional query parameters forwarded to the history endpoint.
+   * Accepts a getter so callers can pass a reactive computed value.
+   */
+  historyParams?: (() => Record<string, string | number | boolean | undefined>) | Record<string, string | number | boolean | undefined>
+  /**
+   * Tool mode forwarded to the input-events endpoint.
+   * Accepts a getter so callers can pass a reactive computed value.
+   */
+  toolMode?: (() => string) | string
+  /**
+   * Allowed tools forwarded to the input-events endpoint.
+   */
+  allowedTools?: (() => string[]) | string[]
+  /**
+   * Memory flag forwarded to the input-events endpoint.
+   */
+  memoryOn?: (() => boolean | undefined) | boolean
+  /**
+   * Called when a session was created (new) or continued.
+   */
+  onSessionCreated?: (sessionId: number) => void
+}
+
+const log = createLogger('default-session-strategy')
+
+function parseMaybeJSON(raw?: string): unknown {
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function isCanceledHistoryTurn(turn: HistoryTurn): boolean {
+  const text = `${turn.status ?? ''} ${turn.error ?? ''} ${turn.ai_output ?? ''}`.toLowerCase()
+  return text.includes('canceled') || text.includes('cancelled') || text.includes('context canceled')
+}
+
+function historyTools(steps: HistoryStep[]): AssistantToolEvent[] {
+  return steps
+    .filter(step => step.step_type === 'tool_use' && step.tool_name)
+    .map((step, index) => ({
+      id: `hist-tool-${step.id ?? step.step_number ?? index}`,
+      name: String(step.tool_name),
+      input: parseMaybeJSON(step.input),
+      output: step.output,
+      is_error: step.status === 'error' || step.status === 'failed',
+      duration_ms: Number(step.duration_ms ?? 0),
+    }))
+}
+
+function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMessage | null {
+  if (isCanceledHistoryTurn(turn)) return null
+  const blocks: AssistantBlock[] = []
+  const tools = historyTools(turn.steps ?? [])
+  if (tools.length) {
+    blocks.push({ type: 'tool-group', tools })
+  }
+  if (turn.ai_output) {
+    blocks.push({ type: 'text', content: String(turn.ai_output) })
+  }
+  if (turn.error) {
+    blocks.push({ type: 'error', message: String(turn.error) })
+  }
+  if (!blocks.length && !turn.ai_output) return null
+  return {
+    id: `a-${turnNo}`,
+    role: 'assistant',
+    content: String(turn.ai_output ?? ''),
+    blocks,
+    elapsed_ms: Number(turn.duration_ms ?? 0),
+    status: turn.status === 'failed' ? 'failed' : 'normal',
+    error: turn.error,
+  }
+}
+
+function resolveValue<T>(v: T | (() => T)): T {
+  return typeof v === 'function' ? (v as () => T)() : v
+}
+
+export class DefaultSessionStrategy implements SessionStrategy {
+  private opts: DefaultSessionStrategyOptions
+
+  constructor(opts: DefaultSessionStrategyOptions) {
+    this.opts = opts
+  }
+
+  private get createPayload() { return resolveValue(this.opts.createPayload) }
+  private get historyParams() { return resolveValue(this.opts.historyParams) ?? {} }
+  private get toolMode() { return resolveValue(this.opts.toolMode) ?? '' }
+  private get allowedTools() { return resolveValue(this.opts.allowedTools) ?? [] }
+  private get memoryOn() { return resolveValue(this.opts.memoryOn) }
+
+  async ensureSession(): Promise<number> {
+    const { sessionIdRef, activeRef, onSessionCreated } = this.opts
+    const createPayload = this.createPayload
+    const sessionId = sessionIdRef.value
+
+    if (sessionId) {
+      if (activeRef.value) return sessionId
+      // Session exists but is inactive — call /continue to reactivate it
+      const trace = createTrace('session-strategy/continue')
+      const response = await tracedFetch(`/api/sessions/${sessionId}/continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }, trace)
+      if (!response.ok) throw new Error(`继续会话失败 (${response.status})`)
+      const data = await response.json()
+      const newId = Number(data.id)
+      if (!Number.isFinite(newId)) throw new Error('Invalid session ID')
+      sessionIdRef.value = newId
+      activeRef.value = true
+      onSessionCreated?.(newId)
+      return newId
+    }
+
+    if (!createPayload) {
+      throw new Error('缺少会话创建参数')
+    }
+    const trace = createTrace('session-strategy/create')
+    const response = await tracedFetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createPayload),
+    }, trace)
+    if (!response.ok) throw new Error(`创建会话失败 (${response.status})`)
+    const data = await response.json()
+    const newId = Number(data.id)
+    if (!Number.isFinite(newId)) throw new Error('Invalid session ID')
+    sessionIdRef.value = newId
+    activeRef.value = true
+    onSessionCreated?.(newId)
+    return newId
+  }
+
+  buildRequest(sessionId: number | string, text: string): { url: string; body: Record<string, unknown> } {
+    const toolMode = this.toolMode
+    const allowedTools = this.allowedTools
+    const memoryOn = this.memoryOn
+    return {
+      url: `/api/sessions/${sessionId}/input-events`,
+      body: {
+        message: text,
+        tool_mode: toolMode || undefined,
+        allowed_tools: allowedTools.length ? allowedTools : undefined,
+        memory_on: memoryOn,
+      },
+    }
+  }
+
+  async loadHistory(sessionId: number | string): Promise<AssistantMessage[]> {
+    try {
+      const trace = createTrace('session-strategy/history')
+      const qs = new URLSearchParams()
+      for (const [key, value] of Object.entries(this.historyParams)) {
+        if (value !== undefined) qs.set(key, String(value))
+      }
+      const response = await tracedFetch(
+        `/api/sessions/${sessionId}/turns${qs.toString() ? `?${qs.toString()}` : ''}`,
+        undefined,
+        trace,
+      )
+      if (!response.ok) throw new Error(`加载会话历史失败 (${response.status})`)
+      const data = await response.json()
+      const next: AssistantMessage[] = []
+      for (const turn of (data.turns ?? []) as HistoryTurn[]) {
+        const turnNo = Number(turn.turn_number ?? turn.id ?? next.length)
+        if (turn.user_input) {
+          next.push({ id: `u-${turnNo}`, role: 'user', content: String(turn.user_input) })
+        }
+        const assistant = historyAssistantMessage(turn, turnNo)
+        if (assistant) next.push(assistant)
+      }
+      return next
+    } catch (error) {
+      log.warn('history load failed', { sessionId, error: String(error) }, createTrace('session-strategy/history'))
+      throw new Error('加载会话历史失败')
+    }
+  }
+}

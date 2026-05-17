@@ -1,0 +1,6 @@
+export type { PortalDescriptor, TabConfig } from './types'
+export { definePortal } from './definePortal'
+export { createPortalRegistry, portalRegistry } from './registry'
+export type { PortalRegistry } from './registry'
+export { isPortalEnabled } from './features'
+export type { PortalTier } from './features'

@@ -1,0 +1,225 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 14% 96%;
+    --foreground: 220 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 12%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 91%;
+    --secondary-foreground: 220 20% 20%;
+    --muted: 220 13% 91%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 220 13% 91%;
+    --accent-foreground: 220 20% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 87%;
+    --input: 220 13% 87%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 14% 96%;
+    --sidebar-foreground: 220 12% 35%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 13% 91%;
+    --sidebar-accent-foreground: 220 20% 12%;
+    --sidebar-border: 220 13% 87%;
+    --sidebar-ring: 239 84% 67%;
+  }
+
+  .dark {
+    --background: 220 20% 4%;
+    --foreground: 214 32% 91%;
+    --card: 220 18% 7%;
+    --card-foreground: 214 32% 91%;
+    --popover: 220 16% 10%;
+    --popover-foreground: 214 32% 91%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 14%;
+    --secondary-foreground: 214 32% 91%;
+    --muted: 220 14% 14%;
+    --muted-foreground: 215 16% 57%;
+    --accent: 220 12% 18%;
+    --accent-foreground: 214 32% 91%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 14% 20%;
+    --input: 220 14% 20%;
+    --ring: 239 84% 67%;
+    --sidebar-background: 220 18% 7%;
+    --sidebar-foreground: 215 16% 57%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 14%;
+    --sidebar-accent-foreground: 214 32% 91%;
+    --sidebar-border: 220 14% 20%;
+    --sidebar-ring: 239 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+  html {
+    font-size: 14px; /* Native desktop app feel — not web's 16px */
+  }
+  *, a, button {
+    cursor: default;
+  }
+  a[href^="http"], a[target="_blank"] {
+    cursor: pointer;
+  }
+}
+
+/* App shell: 禁止 body 滚动，固定为当前可见视口。
+   iOS Safari 的 100vh/h-screen 可能包含浏览器地址栏/工具栏高度，配合
+   overflow:hidden 会截断应用内 toolbar。main.ts 会用 visualViewport.height
+   写入 --dw-app-viewport-height；无 JS 时回退到 100dvh/100vh。 */
+:root {
+  --dw-app-viewport-height: 100dvh;
+  --dw-app-viewport-offset-top: 0px;
+}
+
+html, body, #app {
+  height: var(--dw-app-viewport-height, 100dvh);
+  min-height: var(--dw-app-viewport-height, 100dvh);
+  max-height: var(--dw-app-viewport-height, 100dvh);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.dw-app-viewport-frame {
+  height: var(--dw-app-viewport-height, 100dvh) !important;
+  min-height: 0 !important;
+  max-height: var(--dw-app-viewport-height, 100dvh) !important;
+  overflow: hidden;
+}
+
+/* iOS Safari: prevent bounce-scroll that displaces position:fixed elements.
+   overscroll-behavior: none is the modern standard (Chrome 63+, Safari 16+).
+   touch-action: manipulation on html/body blocks accidental double-tap zoom on iOS Safari.
+   Using 'manipulation' (not 'none') preserves single-finger scroll while preventing
+   double-tap zoom. Child elements (e.g. .xterm-viewport) may override with touch-action:none
+   as needed — child declarations take precedence over parent.
+   We do NOT use position:fixed on body as that breaks xterm.js fixed descendants. */
+html {
+  overscroll-behavior: none;
+  /* Bug 3 fix: pan-x pan-y 比 manipulation 更精确地排除 pinch-zoom：
+     - pan-x: 允许单指水平滚动
+     - pan-y: 允许单指垂直滚动
+     - 不包含 pinch-zoom，因此明确阻止双指缩放
+     - manipulation 等价于 pan-x pan-y + double-tap-zoom 禁用，但不阻止 pinch-zoom
+     如果浏览器不支持 pan-x pan-y 组合（极少），fallback 到 manipulation。 */
+  touch-action: pan-x pan-y;
+  /* Fallback for older iOS: height is pinned by --dw-app-viewport-height above. */
+}
+body {
+  overscroll-behavior: none;
+  /* Bug 3 fix: 与 html 保持一致 */
+  touch-action: pan-x pan-y;
+}
+
+/* ── Project Nebula Wave 1 Design Tokens ────────────────────────────────────── */
+/* NOTE: These variables are only referenced by _archive/CliPage.vue (archived).
+   Retained here to avoid build errors from that file; remove when archive is deleted. */
+:root {
+  --bg-base: #0a0a0f;
+  --bg-surface: rgba(255,255,255,0.05);
+  --bg-surface-hover: rgba(255,255,255,0.08);
+  --border-glass: rgba(255,255,255,0.1);
+  --text-primary: #e2e8f0;
+  --text-muted: rgba(226,232,240,0.5);
+  --accent-green: #22c55e;
+  --accent-blue: #3b82f6;
+  --pill-bg: rgba(15,15,25,0.7);
+  --toolbar-bg: rgba(10,10,20,0.85);
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --shadow-glass: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+/* ── Wails Desktop: avoid macOS traffic light buttons (red/yellow/green) ───── */
+/* InvisibleTitleBarHeight=50 in desktop.go → sidebar gets top padding to clear
+   traffic lights. --dw-titlebar-inset is set by MainLayout when Wails detected. */
+.wails-desktop [data-sidebar="sidebar"] {
+  padding-top: var(--dw-titlebar-inset, 50px);
+}
+.wails-desktop [data-sidebar="header"] {
+  -webkit-app-region: drag;
+}
+.wails-desktop [data-sidebar="menu-button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Titlebar Blend: opt-in class for portals extending into titlebar zone ── */
+/* Usage: add class="dw-titlebar-blend" to a portal's top chrome element
+   (e.g. CLI tab bar). The view wrapper auto-removes its own padding via :has(),
+   so the blend element provides the titlebar inset via its own padding-top.
+   On web/mobile (--dw-titlebar-inset: 0) the class is a no-op. */
+.dw-titlebar-blend {
+  padding-top: var(--dw-titlebar-inset, 0px);
+  box-sizing: content-box;
+  -webkit-app-region: drag;
+}
+.dw-titlebar-blend button,
+.dw-titlebar-blend a,
+.dw-titlebar-blend input,
+.dw-titlebar-blend textarea,
+.dw-titlebar-blend select,
+.dw-titlebar-blend [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* ── B1-ISS-02: Hide xterm.js internal scrollbar ───────────────────────────── */
+/* xterm.js defaults to overflow-y: scroll on .xterm-viewport.
+   Hide the scrollbar for a clean mobile terminal UI.
+   The scrollback buffer still works — only the scrollbar glyph is hidden. */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+.xterm .xterm-viewport {
+  scrollbar-width: none; /* Firefox */
+  /* B1-PKG-01: prevent xterm scroll from propagating to page, which
+     would trigger visualViewport.scroll events and reposition the toolbar. */
+  overscroll-behavior: contain;
+}
+
+/* ── Nebula: Breathing dot animation ───────────────────────────────────────── */
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ── Global animation keyframes ─────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 4px hsl(var(--primary) / 0.4); }
+  50% { box-shadow: 0 0 12px hsl(var(--primary) / 0.8); }
+}
