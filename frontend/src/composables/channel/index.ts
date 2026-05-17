@@ -1,15 +1,14 @@
 /**
  * Channel composables — public barrel export.
  *
- * Consumers import from '@ce/composables/channel' to access all channel-layer
- * primitives without reaching into individual files.
+ * Consumers import from '@ce/composables/channel' to access generic channel
+ * primitives. Terminal-specific composables (useTerminalChannel, useAgentStatus)
+ * live in deepwork-terminal and deepwork-pro respectively — they depend on
+ * terminal-only internals (useWebSocketClient, useAgentIntel) that must not
+ * leak into the framework layer.
  */
 
-export { useAgentStatus } from './useAgentStatus'
-export type { AgentStatus, UseAgentStatusReturn } from './useAgentStatus'
-
 export { useEventChannel } from './useEventChannel'
-export { useTerminalChannel } from './useTerminalChannel'
 export { useWorkstreamController } from './useWorkstreamController'
 
 export type { SessionStrategy, StreamAdapterContract } from './types'
