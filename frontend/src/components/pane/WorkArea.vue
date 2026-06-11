@@ -80,11 +80,18 @@ const activeTabData = computed(() =>
     <!-- Tab bar — CHG-014 V3-D: v6 .ptabs idiom (transparent tabs, muted text,
          active = foreground + 2px amber bottom border via border-b-primary).
          Pure utility-class swap; markup/logic unchanged. -->
-    <div class="flex items-center border-b border-border shrink-0 bg-card overflow-x-auto">
+    <div
+      class="flex items-center border-b border-border shrink-0 bg-card overflow-x-auto"
+      role="tablist"
+      aria-label="工作区标签页"
+    >
       <!-- Explorer tab -->
       <button
         class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium shrink-0 transition-colors border-b-2 -mb-px"
         :class="activeTab === '__explorer' ? 'text-foreground border-b-primary' : 'text-muted-foreground border-b-transparent hover:text-foreground hover:bg-muted/40'"
+        role="tab"
+        :aria-selected="activeTab === '__explorer'"
+        :tabindex="activeTab === '__explorer' ? 0 : -1"
         :aria-label="`打开${explorerTitle}`"
         data-testid="workarea-tab-explorer"
         @click="selectTab('__explorer')"
@@ -101,6 +108,9 @@ const activeTabData = computed(() =>
         >
           <button
             class="min-w-0 flex-1 px-3 py-2 text-left text-xs"
+            role="tab"
+            :aria-selected="activeTab === tab.id"
+            :tabindex="activeTab === tab.id ? 0 : -1"
             :aria-label="`打开标签 ${tab.label}`"
             :data-testid="tabTestId('workarea-tab', tab.id)"
             @click="selectTab(tab.id)"
