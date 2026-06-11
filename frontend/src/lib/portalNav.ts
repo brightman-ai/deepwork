@@ -6,7 +6,6 @@ import {
   MessageSquare,
   TerminalSquare,
   Bot,
-  FilePenLine,
   Users,
   Settings,
   ClipboardList,
@@ -21,7 +20,6 @@ export type PortalName =
   | "workspace"
   | "claw"
   | "knowledge"
-  | "studio"
   | "cli"
   | "council"
   | "planner"
@@ -94,14 +92,6 @@ export const portalNavItems: PortalNavItem[] = [
     portal: "browser",
     icon: Globe,
     description: "Browser companion",
-  },
-  {
-    name: "studio",
-    label: "Studio",
-    path: "/studio",
-    portal: "studio",
-    icon: FilePenLine,
-    description: "Full mode runtime",
   },
   {
     name: "cli",
@@ -180,9 +170,6 @@ export function pageTitleForRoute(path: string): string {
   if (path.startsWith("/knowledge")) {
     return "Knowledge Home";
   }
-  if (path.startsWith("/studio")) {
-    return "Studio";
-  }
   if (path.startsWith("/portal/cli") || path.startsWith("/cli")) {
     return "CLI";
   }
@@ -216,9 +203,6 @@ export function isPortalRouteActive(currentPath: string, item: PortalNavItem): b
   }
   if (item.name === "claw") {
     return currentPath.startsWith("/portal/claw") || currentPath.startsWith("/claws");
-  }
-  if (item.name === "studio") {
-    return currentPath.startsWith("/studio");
   }
   if (item.name === "council") {
     return currentPath.startsWith("/portal/council") || currentPath.startsWith("/council");

@@ -1,39 +1,59 @@
 <script setup lang="ts">
+// v6 icon rail (CHG-014 V1) — 56px icon-only navigation rail.
+//
+// Visual contract (deepwork-v6.html .rail): amber logo tile pinned top, one
+// icon button per portal with a right-side hover tooltip, active portal painted
+// with --dw-ac-dim background + --dw-ac icon. Settings is pinned to the bottom
+// via a flex gap. The portal set still comes from /api/config/portals — the API
+// contract is unchanged; only the chrome differs from the old text sidebar.
+//
+// Responsive: on desktop the rail is a permanent 56px column (never expands).
+// On mobile it collapses into a Sheet driven by the existing mobile-portal
+// trigger (MainLayout) via useSidebar's openMobile state. Wails titlebar inset
+// is honored via the --dw-titlebar-inset padding on the rail top.
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
-  SidebarTrigger,
-  useSidebar,
-} from "@ce/components/ui/sidebar";
+import { Sheet, SheetContent } from "@ce/components/ui/sheet";
+import { useSidebar } from "@ce/components/ui/sidebar";
 import { isPortalRouteActive, enabledPortalNavItems, utilityNavItems } from "@ce/lib/portalNav";
 import { apiUrl } from "@ce/utils/runtimeBase";
-import SetupWizardIcon from "@ce/components/wizard/SetupWizardIcon.vue";
 
 const emit = defineEmits<{
   (e: "navigate"): void;
 }>();
 
 const route = useRoute();
-const { isMobile, setOpenMobile } = useSidebar();
+const { isMobile, openMobile, setOpenMobile } = useSidebar();
 const runtimeRequiredPortals: string[] = ["browser", "open-design"];
-const visiblePortals = ref<string[]>(["topic", "chat", "workspace", "claw", "knowledge", "planner", "browser", "studio", "cli", "council", "open-design"]);
+const visiblePortals = ref<string[]>([
+  "topic", "chat", "workspace", "claw", "knowledge", "planner", "browser", "cli", "council", "open-design",
+]);
 
-const visibleItems = computed(() =>
-  enabledPortalNavItems
-    .filter((item) => item.portal === null || visiblePortals.value.includes(item.portal))
-    .concat(utilityNavItems),
-);
+// v6 rail order (deepwork-v6.html): home → topic → chat → workspace →
+// open-design → browser → cli → claw → knowledge → requirement → council.
+// `home` resolves to "/" which the topic item already owns as active route, so
+// the dedicated home tile is the logo. Settings is pinned at the bottom.
+const RAIL_ORDER = [
+  "topic", "chat", "workspace", "open-design", "browser", "cli", "claw", "knowledge", "planner", "council",
+];
+
+const portalItems = computed(() => {
+  const enabled = enabledPortalNavItems.filter(
+    (item) => item.portal === null || visiblePortals.value.includes(item.portal),
+  );
+  const byName = new Map(enabled.map((item) => [item.name, item]));
+  const ordered = RAIL_ORDER.map((name) => byName.get(name)).filter(
+    (item): item is NonNullable<typeof item> => Boolean(item),
+  );
+  // Any enabled portal not listed in RAIL_ORDER is appended so a new portal is
+  // never silently dropped from the rail.
+  for (const item of enabled) {
+    if (!RAIL_ORDER.includes(item.name)) ordered.push(item);
+  }
+  return ordered;
+});
+
+const settingsItem = computed(() => utilityNavItems.find((item) => item.name === "settings"));
 
 function ensureRequiredPortals(portals: string[]): string[] {
   const merged = [...portals];
@@ -67,78 +87,178 @@ function handleNavigate() {
 </script>
 
 <template>
-  <Sidebar collapsible="icon" data-testid="navigation-sidebar">
-    <SidebarHeader>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <!-- Sidebar toggle — macOS 原生范式: toggle 在 sidebar 内部 -->
-          <SidebarMenuButton tooltip="展开/收缩侧栏" as-child>
-            <SidebarTrigger class="nav-sidebar-trigger" />
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton size="lg" as-child>
-            <router-link to="/">
-              <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-foreground text-background font-bold text-[10px] tracking-wider">
-                DW
-              </div>
-              <div class="grid flex-1 text-left text-sm leading-tight">
-                <span class="truncate font-semibold">Deepwork</span>
-                <span class="truncate text-xs text-muted-foreground">Portal</span>
-              </div>
-            </router-link>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarHeader>
+  <!-- Mobile: the rail lives inside a Sheet driven by the mobile-portal trigger. -->
+  <Sheet v-if="isMobile" :open="openMobile" @update:open="setOpenMobile">
+    <SheetContent side="left" class="w-auto border-0 bg-transparent p-0 [&>button]:hidden">
+      <nav class="dw-rail" data-od-id="rail" data-testid="navigation-sidebar">
+        <router-link
+          to="/"
+          class="dw-rail-logo"
+          aria-label="主页"
+          data-testid="nav-item-home"
+          @click="handleNavigate"
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
+            <rect x="1" y="4" width="4" height="7" rx=".5" />
+            <rect x="5.5" y="2" width="4" height="11" rx=".5" />
+            <rect x="10" y="5" width="4" height="6" rx=".5" />
+          </svg>
+        </router-link>
+        <component
+          :is="item.external ? 'a' : 'router-link'"
+          v-for="item in portalItems"
+          :key="item.name"
+          v-bind="item.external ? { href: item.path } : { to: item.path }"
+          class="dw-rb"
+          :class="{ on: isPortalRouteActive(route.path, item) }"
+          :data-tip="item.label"
+          :data-testid="`nav-item-${item.name}`"
+          :aria-label="item.label"
+          @click="handleNavigate"
+        >
+          <component :is="item.icon" />
+        </component>
+        <div class="dw-rail-gap" />
+        <router-link
+          v-if="settingsItem"
+          :to="settingsItem.path"
+          class="dw-rb"
+          :class="{ on: isPortalRouteActive(route.path, settingsItem) }"
+          :data-tip="settingsItem.label"
+          :data-testid="`nav-item-${settingsItem.name}`"
+          :aria-label="settingsItem.label"
+          @click="handleNavigate"
+        >
+          <component :is="settingsItem.icon" />
+        </router-link>
+      </nav>
+    </SheetContent>
+  </Sheet>
 
-    <SidebarContent>
-      <SidebarGroup>
-        <SidebarGroupLabel>Portals</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <SidebarMenu>
-            <SidebarMenuItem v-for="item in visibleItems" :key="item.name">
-              <SidebarMenuButton
-                as-child
-                :is-active="isPortalRouteActive(route.path, item)"
-                :tooltip="item.description"
-                :data-testid="`nav-item-${item.name}`"
-              >
-                <component
-                  :is="item.external ? 'a' : 'router-link'"
-                  v-bind="item.external ? { href: item.path } : { to: item.path }"
-                  @click="handleNavigate"
-                >
-                  <component :is="item.icon" />
-                  <span>{{ item.label }}</span>
-                </component>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    </SidebarContent>
+  <!-- Desktop: permanent 56px icon rail. -->
+  <nav v-else class="dw-rail" data-od-id="rail" data-testid="navigation-sidebar">
+    <!-- Amber logo tile → home ("/") -->
+    <router-link
+      to="/"
+      class="dw-rail-logo"
+      aria-label="主页"
+      data-testid="nav-item-home"
+      @click="handleNavigate"
+    >
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
+        <rect x="1" y="4" width="4" height="7" rx=".5" />
+        <rect x="5.5" y="2" width="4" height="11" rx=".5" />
+        <rect x="10" y="5" width="4" height="6" rx=".5" />
+      </svg>
+    </router-link>
 
-    <SidebarFooter>
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SetupWizardIcon />
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarFooter>
+    <component
+      :is="item.external ? 'a' : 'router-link'"
+      v-for="item in portalItems"
+      :key="item.name"
+      v-bind="item.external ? { href: item.path } : { to: item.path }"
+      class="dw-rb"
+      :class="{ on: isPortalRouteActive(route.path, item) }"
+      :data-tip="item.label"
+      :data-testid="`nav-item-${item.name}`"
+      :aria-label="item.label"
+      @click="handleNavigate"
+    >
+      <component :is="item.icon" />
+    </component>
 
-    <SidebarRail />
-  </Sidebar>
+    <div class="dw-rail-gap" />
+
+    <router-link
+      v-if="settingsItem"
+      :to="settingsItem.path"
+      class="dw-rb"
+      :class="{ on: isPortalRouteActive(route.path, settingsItem) }"
+      :data-tip="settingsItem.label"
+      :data-testid="`nav-item-${settingsItem.name}`"
+      :aria-label="settingsItem.label"
+      @click="handleNavigate"
+    >
+      <component :is="settingsItem.icon" />
+    </router-link>
+  </nav>
 </template>
 
 <style scoped>
-.nav-sidebar-trigger {
-  width: 100%;
-  height: 32px;
-  color: var(--sidebar-foreground);
-  border-radius: 6px;
+.dw-rail {
+  width: 56px;
+  min-width: 56px;
+  height: 100%;
+  background: var(--dw-sf);
+  border-right: 1px solid var(--dw-bd);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(10px + var(--dw-titlebar-inset, 0px)) 0 12px;
+  gap: 2px;
+  z-index: 30;
 }
-.nav-sidebar-trigger:hover {
-  background: hsl(var(--sidebar-accent));
+
+.dw-rail-logo {
+  width: 30px;
+  height: 30px;
+  background: var(--dw-ac);
+  border-radius: var(--dw-r2);
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+  color: var(--dw-on-accent);
+  flex-shrink: 0;
+}
+
+.dw-rb {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--dw-r);
+  display: grid;
+  place-items: center;
+  color: var(--dw-mu);
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+}
+.dw-rb:hover {
+  background: var(--dw-sf2);
+  color: var(--dw-fg);
+}
+.dw-rb.on {
+  background: var(--dw-ac-dim);
+  color: var(--dw-ac);
+}
+.dw-rb :deep(svg) {
+  width: 17px;
+  height: 17px;
+}
+
+/* right-side hover tooltip (v6 .rb::after) */
+.dw-rb::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--dw-sf3);
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: var(--dw-r);
+  border: 1px solid var(--dw-bd);
+  color: var(--dw-fg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+  z-index: 99;
+}
+.dw-rb:hover::after {
+  opacity: 1;
+}
+
+.dw-rail-gap {
+  flex: 1;
 }
 </style>
