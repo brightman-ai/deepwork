@@ -60,20 +60,19 @@ export default {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		fontFamily: {
+  			// v6 brand stack (tokens.css --dw-font / --dw-mono) — keep in sync
   			sans: [
-  				'Inter',
-  				'ui-sans-serif',
-  				'system-ui',
   				'-apple-system',
   				'BlinkMacSystemFont',
+  				'Helvetica Neue',
+  				'system-ui',
   				'Segoe UI',
-  				'Roboto',
   				'sans-serif'
   			],
   			mono: [
   				'JetBrains Mono',
   				'SF Mono',
-  				'Fira Mono',
+  				'ui-monospace',
   				'monospace'
   			]
   		},

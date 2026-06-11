@@ -1,0 +1,118 @@
+/* ════════════════════════════════════════════════════════════════════════
+   DeepWork Design Tokens — v6 visual shell SSOT (CHG-014)
+   Source: deepwork-v6.html prototype token block.
+
+   Brand locks (HANDOFF-v6 §1):
+   - Single amber accent; no second accent hue.
+   - Blue is reserved for unread markers and links.
+   - Heat is the hardcoded hi/md/lo trio below.
+   - Dark is the default and only implemented theme. The light block keeps
+     the token structure but is intentionally not wired to any switch.
+
+   Two layers — keep them in sync when editing:
+   1. --dw-* primitives: verbatim v6 palette (oklch/hex preserved).
+      Use in v6-native chrome (rail / topbar / dashboard / new components).
+   2. shadcn semantic hsl triples (--background … --sidebar-*), consumed as
+      hsl(var(--x)) by tailwind.config.js. They re-express the same palette
+      so the existing component fleet inherits the theme without edits.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── layer 1: v6 primitives ──────────────────────────────────────────── */
+  --dw-bg: #0d0d0f;         /* app canvas */
+  --dw-sf: #141416;         /* surface 1: rail / topbar / cards */
+  --dw-sf2: #1c1c1f;        /* surface 2: hover / inset boxes */
+  --dw-sf3: #232327;        /* surface 3: active / popover */
+  --dw-fg: #e8e8ec;
+  --dw-mu: #6b6b72;         /* muted text */
+  --dw-bd: #252528;         /* borders */
+  --dw-on-accent: #0d0d0f;  /* text on solid accent fills */
+
+  --dw-ac: oklch(72% 0.14 55);            /* amber — the only accent */
+  --dw-ac-dim: oklch(72% 0.14 55 / 0.14);
+  --dw-ok: oklch(70% 0.12 158);
+  --dw-ok-dim: oklch(70% 0.12 158 / 0.14);
+  --dw-warn: oklch(74% 0.12 62);
+  --dw-warn-dim: oklch(74% 0.12 62 / 0.12);
+  --dw-blu: oklch(68% 0.12 245);          /* unread / links only */
+  --dw-blu-dim: oklch(68% 0.12 245 / 0.14);
+  --dw-red: oklch(64% 0.17 25);
+  --dw-red-dim: oklch(64% 0.17 25 / 0.12);
+  --dw-pur: oklch(70% 0.11 300);
+  --dw-pur-dim: oklch(70% 0.11 300 / 0.10);
+
+  --dw-heat-hi: #fe7a15;
+  --dw-heat-md: #cf7721;
+  --dw-heat-lo: #9b764f;
+
+  --dw-font: -apple-system, 'Helvetica Neue', system-ui, 'Segoe UI', sans-serif;
+  --dw-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+  --dw-r: 5px;
+  --dw-r2: 8px;
+  --dw-r3: 12px;
+}
+
+/* ── layer 2: shadcn semantics — hsl triples, consumed as hsl(var(--x)) ── */
+
+:root {
+  /* light structure (reserved, not the product theme) */
+  --background: 220 14% 96%;
+  --foreground: 220 20% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 20% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 20% 12%;
+  --primary: 30 77% 59%;
+  --primary-foreground: 240 7% 5%;
+  --secondary: 220 13% 91%;
+  --secondary-foreground: 220 20% 20%;
+  --muted: 220 13% 91%;
+  --muted-foreground: 220 10% 45%;
+  --accent: 220 13% 91%;
+  --accent-foreground: 220 20% 12%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 87%;
+  --input: 220 13% 87%;
+  --ring: 30 77% 59%;
+  --radius: 0.5rem;
+  --sidebar-background: 220 14% 96%;
+  --sidebar-foreground: 220 12% 35%;
+  --sidebar-primary: 30 77% 59%;
+  --sidebar-primary-foreground: 240 7% 5%;
+  --sidebar-accent: 220 13% 91%;
+  --sidebar-accent-foreground: 220 20% 12%;
+  --sidebar-border: 220 13% 87%;
+  --sidebar-ring: 30 77% 59%;
+}
+
+.dark {
+  --background: 240 7% 5.5%;          /* --dw-bg  */
+  --foreground: 240 10% 92%;          /* --dw-fg  */
+  --card: 240 5% 8.2%;                /* --dw-sf  */
+  --card-foreground: 240 10% 92%;
+  --popover: 240 5% 11.6%;            /* --dw-sf2 */
+  --popover-foreground: 240 10% 92%;
+  --primary: 30 77% 59%;              /* --dw-ac  */
+  --primary-foreground: 240 7% 5%;    /* dark text on amber */
+  --secondary: 240 5% 11.6%;          /* --dw-sf2 */
+  --secondary-foreground: 240 10% 92%;
+  --muted: 240 5% 11.6%;              /* --dw-sf2 */
+  --muted-foreground: 240 3% 43%;     /* --dw-mu  */
+  --accent: 240 5% 14.5%;             /* --dw-sf3 — hover/active surface */
+  --accent-foreground: 240 10% 92%;
+  --destructive: 10 70% 61%;          /* --dw-red */
+  --destructive-foreground: 240 7% 5%;
+  --border: 240 4% 15%;               /* --dw-bd  */
+  --input: 240 4% 15%;
+  --ring: 30 77% 59%;
+  --sidebar-background: 240 5% 8.2%;  /* --dw-sf  */
+  --sidebar-foreground: 240 3% 43%;   /* --dw-mu  */
+  --sidebar-primary: 30 77% 59%;
+  --sidebar-primary-foreground: 240 7% 5%;
+  --sidebar-accent: 240 5% 11.6%;     /* --dw-sf2 */
+  --sidebar-accent-foreground: 240 10% 92%;
+  --sidebar-border: 240 4% 15%;
+  --sidebar-ring: 30 77% 59%;
+}
