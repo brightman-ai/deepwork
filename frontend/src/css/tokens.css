@@ -45,7 +45,8 @@
   --dw-heat-md: #cf7721;
   --dw-heat-lo: #9b764f;
 
-  --dw-font: -apple-system, 'Helvetica Neue', system-ui, 'Segoe UI', sans-serif;
+  /* keep in exact sync with tailwind.config.js fontFamily (sans/mono) */
+  --dw-font: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', system-ui, 'Segoe UI', sans-serif;
   --dw-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
 
   --dw-r: 5px;
@@ -63,7 +64,7 @@
   --card-foreground: 220 20% 12%;
   --popover: 0 0% 100%;
   --popover-foreground: 220 20% 12%;
-  --primary: 30 77% 59%;
+  --primary: 26 77% 59%;
   --primary-foreground: 240 7% 5%;
   --secondary: 220 13% 91%;
   --secondary-foreground: 220 20% 20%;
@@ -75,16 +76,16 @@
   --destructive-foreground: 0 0% 100%;
   --border: 220 13% 87%;
   --input: 220 13% 87%;
-  --ring: 30 77% 59%;
+  --ring: 26 77% 59%;
   --radius: 0.5rem;
   --sidebar-background: 220 14% 96%;
   --sidebar-foreground: 220 12% 35%;
-  --sidebar-primary: 30 77% 59%;
+  --sidebar-primary: 26 77% 59%;
   --sidebar-primary-foreground: 240 7% 5%;
   --sidebar-accent: 220 13% 91%;
   --sidebar-accent-foreground: 220 20% 12%;
   --sidebar-border: 220 13% 87%;
-  --sidebar-ring: 30 77% 59%;
+  --sidebar-ring: 26 77% 59%;
 }
 
 .dark {
@@ -94,7 +95,7 @@
   --card-foreground: 240 10% 92%;
   --popover: 240 5% 11.6%;            /* --dw-sf2 */
   --popover-foreground: 240 10% 92%;
-  --primary: 30 77% 59%;              /* --dw-ac  */
+  --primary: 26 77% 59%;              /* --dw-ac  */
   --primary-foreground: 240 7% 5%;    /* dark text on amber */
   --secondary: 240 5% 11.6%;          /* --dw-sf2 */
   --secondary-foreground: 240 10% 92%;
@@ -102,17 +103,17 @@
   --muted-foreground: 240 3% 43%;     /* --dw-mu  */
   --accent: 240 5% 14.5%;             /* --dw-sf3 — hover/active surface */
   --accent-foreground: 240 10% 92%;
-  --destructive: 10 70% 61%;          /* --dw-red */
+  --destructive: 2 70% 61%;          /* --dw-red */
   --destructive-foreground: 240 7% 5%;
   --border: 240 4% 15%;               /* --dw-bd  */
   --input: 240 4% 15%;
-  --ring: 30 77% 59%;
+  --ring: 26 77% 59%;
   --sidebar-background: 240 5% 8.2%;  /* --dw-sf  */
   --sidebar-foreground: 240 3% 43%;   /* --dw-mu  */
-  --sidebar-primary: 30 77% 59%;
+  --sidebar-primary: 26 77% 59%;
   --sidebar-primary-foreground: 240 7% 5%;
   --sidebar-accent: 240 5% 11.6%;     /* --dw-sf2 */
   --sidebar-accent-foreground: 240 10% 92%;
   --sidebar-border: 240 4% 15%;
-  --sidebar-ring: 30 77% 59%;
+  --sidebar-ring: 26 77% 59%;
 }
