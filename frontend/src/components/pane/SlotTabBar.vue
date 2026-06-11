@@ -361,13 +361,16 @@ function tabIcon(tab: Tab): Component | null {
 
 <style scoped>
 /* ── 根容器 ──────────────────────────────────────────────────────────────────── */
+/* CHG-014 V3-D: v6 .ptabs idiom — transparent tab strip on the --sf surface,
+   muted text, active = foreground text + 2px amber bottom border (no filled
+   active background). Pure CSS swap; markup/logic unchanged. */
 .slot-tab-bar {
   position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
   height: 32px;
-  background: hsl(var(--muted) / 0.3);
+  background: hsl(var(--card));
   border-bottom: 1px solid var(--border);
   overflow: hidden;
   user-select: none;
@@ -421,13 +424,16 @@ function tabIcon(tab: Tab): Component | null {
 }
 
 .tab-item:hover {
-  background: hsl(var(--muted) / 0.6);
   color: var(--foreground);
 }
 
-/* 激活 tab: 亮背景 + 底部 primary 色线 */
+.tab-item:hover:not(.tab-item--active) {
+  background: hsl(var(--muted) / 0.4);
+}
+
+/* 激活 tab: v6 .ptabs.on — 前景文字 + 2px 琥珀底线，背景透明（不填色） */
 .tab-item--active {
-  background: hsl(var(--background, 0 0% 100%) / 1);
+  background: transparent;
   color: var(--foreground);
   font-weight: 500;
 }

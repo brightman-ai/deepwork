@@ -379,13 +379,19 @@ function renderMarkdown(value: unknown): string {
 </script>
 
 <style scoped>
+/* CHG-014 V3-D: v6 tokenization. This surface was hardcoded LIGHT; every color
+   below now maps to the --dw-* primitive vocabulary (tokens.css) so the dark
+   shell renders consistently. Behavior-frozen — CSS values only, no markup/logic
+   change. Token map: bg/transparent surface · --dw-sf strips · --dw-sf2 insets ·
+   --dw-sf3 active/bubble · --dw-bd borders · --dw-mu muted · --dw-fg text ·
+   --dw-ac amber accent (single accent lock) · --dw-mono mono hints. */
 .as-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  background: #fbfcfe;
-  color: #172033;
+  background: var(--dw-bg);
+  color: var(--dw-fg);
 }
 
 .as-pane__header {
@@ -394,13 +400,14 @@ function renderMarkdown(value: unknown): string {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border-bottom: 1px solid #e5ebf3;
+  border-bottom: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
   flex-shrink: 0;
 }
 
 .as-pane__eyebrow {
   display: block;
-  color: #69758a;
+  color: var(--dw-mu);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -427,8 +434,8 @@ function renderMarkdown(value: unknown): string {
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 11px;
-  background: #eef3f8;
-  color: #526174;
+  background: var(--dw-sf2);
+  color: var(--dw-mu);
 }
 
 .as-pane__header-actions {
@@ -440,20 +447,20 @@ function renderMarkdown(value: unknown): string {
 .as-pane__state--active,
 .as-pane__state--ready,
 .as-badge--done {
-  background: #e0f2e8;
-  color: #12613a;
+  background: var(--dw-ok-dim);
+  color: var(--dw-ok);
 }
 
 .as-pane__state--pending,
 .as-badge--running {
-  background: #e8edff;
-  color: #2b46a0;
+  background: var(--dw-blu-dim);
+  color: var(--dw-blu);
 }
 
 .as-pane__state--error,
 .as-badge--error {
-  background: #fee8e7;
-  color: #a21d1d;
+  background: var(--dw-red-dim);
+  color: var(--dw-red);
 }
 
 .as-pane__context {
@@ -461,7 +468,8 @@ function renderMarkdown(value: unknown): string {
   gap: 6px;
   flex-wrap: wrap;
   padding: 8px 12px;
-  border-bottom: 1px solid #e9eef5;
+  background: var(--dw-sf);
+  border-bottom: 1px solid var(--dw-bd);
   flex-shrink: 0;
 }
 
@@ -472,13 +480,13 @@ function renderMarkdown(value: unknown): string {
 }
 
 .as-pane__context-chip--warning {
-  background: #fff4d6;
-  color: #7b4b00;
+  background: var(--dw-warn-dim);
+  color: var(--dw-warn);
 }
 
 .as-pane__context-chip--good {
-  background: #e0f2e8;
-  color: #12613a;
+  background: var(--dw-ok-dim);
+  color: var(--dw-ok);
 }
 
 .as-pane__timeline {
@@ -495,11 +503,11 @@ function renderMarkdown(value: unknown): string {
   flex-direction: column;
   justify-content: center;
   gap: 8px;
-  color: #66758c;
+  color: var(--dw-mu);
 }
 
 .as-pane__empty-title {
-  color: #1f2937;
+  color: var(--dw-fg);
   font-weight: 750;
   font-size: 16px;
 }
@@ -513,8 +521,8 @@ function renderMarkdown(value: unknown): string {
 .as-pane__example,
 .as-pane__launcher-item {
   text-align: left;
-  border: 1px solid #e3eaf3;
-  background: #f5f8fc;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf2);
   border-radius: 8px;
   padding: 9px 10px;
   cursor: pointer;
@@ -522,20 +530,20 @@ function renderMarkdown(value: unknown): string {
 
 .as-pane__example:hover,
 .as-pane__launcher-item:hover {
-  background: #edf3fa;
+  background: var(--dw-sf3);
 }
 
 .as-pane__example-label,
 .as-pane__launcher-item strong {
   display: block;
-  color: #1f2937;
+  color: var(--dw-fg);
   font-weight: 700;
 }
 
 .as-pane__example-desc,
 .as-pane__launcher-item span {
   display: block;
-  color: #66758c;
+  color: var(--dw-mu);
   font-size: 12px;
   margin-top: 2px;
 }
@@ -547,7 +555,7 @@ function renderMarkdown(value: unknown): string {
 }
 
 .as-message + .as-message {
-  border-top: 1px solid #eef2f6;
+  border-top: 1px solid var(--dw-bd);
 }
 
 .as-message--user {
@@ -558,8 +566,8 @@ function renderMarkdown(value: unknown): string {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2563eb;
-  color: #fff;
+  background: var(--dw-ac);
+  color: var(--dw-on-accent);
   font-size: 10px;
   font-weight: 800;
   display: flex;
@@ -576,12 +584,13 @@ function renderMarkdown(value: unknown): string {
   gap: 6px;
 }
 
+/* v6 user bubble = neutral surface (.msg-u .bub uses --sf3), not a colored fill */
 .as-message__user-bubble {
   max-width: min(80%, 720px);
   padding: 8px 12px;
   border-radius: 16px 16px 4px 16px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--dw-sf3);
+  color: var(--dw-fg);
   white-space: pre-wrap;
 }
 
@@ -603,21 +612,21 @@ function renderMarkdown(value: unknown): string {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border: 1px solid #e3eaf3;
-  background: #f8fafd;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
 }
 
 .as-block--error {
-  background: #fff1f1;
-  color: #9f1d1d;
+  background: var(--dw-red-dim);
+  color: var(--dw-red);
 }
 
 .as-spinner {
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  border: 2px solid #b7c5da;
-  border-top-color: #2563eb;
+  border: 2px solid var(--dw-bd);
+  border-top-color: var(--dw-ac);
   animation: as-spin 0.9s linear infinite;
   flex-shrink: 0;
 }
@@ -630,8 +639,8 @@ function renderMarkdown(value: unknown): string {
 
 .as-block--thinking,
 .as-tool-group {
-  border: 1px solid #e3eaf3;
-  background: #f8fafd;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
   overflow: hidden;
 }
 
@@ -647,23 +656,23 @@ function renderMarkdown(value: unknown): string {
 .as-block--thinking pre {
   margin: 0;
   padding: 8px 10px 10px;
-  border-top: 1px solid #e3eaf3;
+  border-top: 1px solid var(--dw-bd);
   white-space: pre-wrap;
-  color: #4b5870;
+  color: var(--dw-mu);
   font-size: 12px;
 }
 
 .as-block__icon {
   width: 16px;
   text-align: center;
-  color: #2563eb;
+  color: var(--dw-ac);
   flex-shrink: 0;
 }
 
 .as-tool__summary {
   flex: 1;
   min-width: 0;
-  color: #66758c;
+  color: var(--dw-mu);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -673,13 +682,13 @@ function renderMarkdown(value: unknown): string {
   display: grid;
   gap: 4px;
   padding: 0 8px 8px 22px;
-  border-left: 2px solid #dbe4f0;
+  border-left: 2px solid var(--dw-bd);
   margin-left: 14px;
 }
 
 .as-task-plan {
-  border: 1px solid #e3eaf3;
-  background: #f8fafd;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
   padding: 8px 10px;
 }
 
@@ -705,7 +714,7 @@ function renderMarkdown(value: unknown): string {
 }
 
 .as-task-plan__item span {
-  color: #66758c;
+  color: var(--dw-mu);
   font-size: 12px;
 }
 
@@ -714,7 +723,7 @@ function renderMarkdown(value: unknown): string {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-  color: #66758c;
+  color: var(--dw-mu);
   font-size: 11.5px;
 }
 
@@ -725,12 +734,12 @@ function renderMarkdown(value: unknown): string {
 }
 
 .as-footer__dot--active {
-  background: #16a34a;
+  background: var(--dw-ok);
   animation: as-pulse 1.2s ease-in-out infinite;
 }
 
 .as-footer__dot--done {
-  background: #a8b3c2;
+  background: var(--dw-mu);
 }
 
 .as-pane__error {
@@ -738,9 +747,9 @@ function renderMarkdown(value: unknown): string {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  background: #fff1f1;
-  color: #9f1d1d;
-  border-top: 1px solid #ffd7d7;
+  background: var(--dw-red-dim);
+  color: var(--dw-red);
+  border-top: 1px solid var(--dw-bd);
 }
 
 .as-pane__error button {
@@ -750,8 +759,11 @@ function renderMarkdown(value: unknown): string {
   cursor: pointer;
 }
 
+/* v6 composer (.cmp / .cmp-box): --sf strip, --sf2 inset box, amber focus ring,
+   amber send button with on-accent glyph (single accent lock). */
 .as-pane__composer {
-  border-top: 1px solid #e5ebf3;
+  border-top: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
   padding: 9px 12px 11px;
   flex-shrink: 0;
 }
@@ -767,8 +779,9 @@ function renderMarkdown(value: unknown): string {
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  border: 1px solid #d7e0ec;
-  background: #f5f8fc;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf2);
+  color: var(--dw-mu);
   cursor: pointer;
 }
 
@@ -782,7 +795,9 @@ function renderMarkdown(value: unknown): string {
   flex: 1;
   min-width: 0;
   resize: none;
-  border: 1px solid #d7e0ec;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf2);
+  color: var(--dw-fg);
   border-radius: 10px;
   padding: 10px 12px;
   line-height: 1.45;
@@ -791,9 +806,13 @@ function renderMarkdown(value: unknown): string {
   max-height: 180px;
 }
 
+.as-composer__input::placeholder {
+  color: var(--dw-mu);
+}
+
 .as-composer__input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  border-color: oklch(72% 0.14 55 / 0.5);
+  box-shadow: 0 0 0 3px var(--dw-ac-dim);
 }
 
 .as-composer__send {
@@ -801,14 +820,15 @@ function renderMarkdown(value: unknown): string {
   height: 38px;
   border-radius: 9px;
   border: 0;
-  background: #2563eb;
-  color: #fff;
+  background: var(--dw-ac);
+  color: var(--dw-on-accent);
   font-weight: 700;
   cursor: pointer;
 }
 
 .as-composer__send:disabled {
-  background: #aab6c8;
+  background: var(--dw-sf3);
+  color: var(--dw-mu);
   cursor: not-allowed;
 }
 
@@ -825,11 +845,11 @@ function renderMarkdown(value: unknown): string {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  border: 1px solid #d7e0ec;
-  background: #fff;
-  color: #2563eb;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf3);
+  color: var(--dw-ac);
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(23, 32, 51, 0.14);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 }
 
 /* Density spectrum (CHG-013 D8): full (default sizing above) ⊃ chat ⊃ compact.
@@ -870,19 +890,24 @@ function renderMarkdown(value: unknown): string {
   padding: 8px 10px;
 }
 
+/* code fences: v6 .bout uses --sf on dark canvas; inline code on --sf2 (mono) */
 :deep(.as-code) {
   margin: 6px 0;
   padding: 8px 10px;
   border-radius: 7px;
-  background: #111827;
-  color: #f8fafc;
+  background: var(--dw-sf);
+  border: 1px solid var(--dw-bd);
+  color: var(--dw-fg);
+  font-family: var(--dw-mono);
   overflow-x: auto;
 }
 
 :deep(.as-inline-code) {
   border-radius: 4px;
   padding: 1px 4px;
-  background: #eef3f8;
+  background: var(--dw-sf2);
+  color: var(--dw-fg);
+  font-family: var(--dw-mono);
 }
 
 @keyframes as-spin {

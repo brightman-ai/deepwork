@@ -55,22 +55,23 @@ const friendlyMessage = computed(() => toFriendlyMessage(props.block.message))
 </template>
 
 <style scoped>
+/* CHG-014 V3-D: v6 tokenization — was hardcoded light red. --dw-red palette. */
 .error-block {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid #fca5a5;
-  background: #fff1f1;
-  color: #9f1d1d;
+  border: 1px solid var(--dw-red-dim);
+  background: var(--dw-red-dim);
+  color: var(--dw-red);
   font-size: 13px;
 }
 
 .error-block__icon {
   flex-shrink: 0;
   font-size: 14px;
-  color: #dc2626;
+  color: var(--dw-red);
 }
 
 .error-block__message {
@@ -82,9 +83,9 @@ const friendlyMessage = computed(() => toFriendlyMessage(props.block.message))
   flex-shrink: 0;
   padding: 3px 10px;
   border-radius: 5px;
-  border: 1px solid #fca5a5;
-  background: #fff;
-  color: #9f1d1d;
+  border: 1px solid var(--dw-red-dim);
+  background: var(--dw-sf2);
+  color: var(--dw-red);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -92,6 +93,6 @@ const friendlyMessage = computed(() => toFriendlyMessage(props.block.message))
 }
 
 .error-block__retry:hover {
-  background: #fee2e2;
+  background: var(--dw-sf3);
 }
 </style>

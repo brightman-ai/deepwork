@@ -77,12 +77,14 @@ const activeTabData = computed(() =>
 
 <template>
   <div class="flex flex-col flex-1 overflow-hidden bg-background">
-    <!-- Tab bar -->
-    <div class="flex items-center border-b border-border shrink-0 bg-muted/20 overflow-x-auto">
+    <!-- Tab bar — CHG-014 V3-D: v6 .ptabs idiom (transparent tabs, muted text,
+         active = foreground + 2px amber bottom border via border-b-primary).
+         Pure utility-class swap; markup/logic unchanged. -->
+    <div class="flex items-center border-b border-border shrink-0 bg-card overflow-x-auto">
       <!-- Explorer tab -->
       <button
-        class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-r border-border shrink-0 transition-colors"
-        :class="activeTab === '__explorer' ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
+        class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium shrink-0 transition-colors border-b-2 -mb-px"
+        :class="activeTab === '__explorer' ? 'text-foreground border-b-primary' : 'text-muted-foreground border-b-transparent hover:text-foreground hover:bg-muted/40'"
         :aria-label="`打开${explorerTitle}`"
         data-testid="workarea-tab-explorer"
         @click="selectTab('__explorer')"
@@ -94,8 +96,8 @@ const activeTabData = computed(() =>
       <!-- Content tabs -->
       <template v-for="tab in visibleTabs" :key="tab.id">
         <div
-          class="flex items-center border-r border-border shrink-0 transition-colors max-w-[180px]"
-          :class="activeTab === tab.id ? 'bg-background text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
+          class="flex items-center shrink-0 transition-colors max-w-[180px] border-b-2 -mb-px"
+          :class="activeTab === tab.id ? 'text-foreground border-b-primary font-medium' : 'text-muted-foreground border-b-transparent hover:text-foreground hover:bg-muted/40'"
         >
           <button
             class="min-w-0 flex-1 px-3 py-2 text-left text-xs"
