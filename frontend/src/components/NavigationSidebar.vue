@@ -22,6 +22,16 @@ const emit = defineEmits<{
   (e: "navigate"): void;
 }>();
 
+// Optional, generic visibility contract. When provided, the resolved portal-name
+// list (server visible_portals merged with runtime-required) is passed through
+// this filter as the FINAL say on what the rail renders. Default (prop absent) =
+// identity, so behavior is byte-for-byte identical to before. This lets an outer
+// shell project a narrower view (e.g. a progressive-disclosure tier) without this
+// component knowing anything about the business semantics of the filter.
+const props = defineProps<{
+  portalFilter?: (portals: string[]) => string[];
+}>();
+
 const route = useRoute();
 const { isMobile, openMobile, setOpenMobile } = useSidebar();
 const runtimeRequiredPortals: string[] = ["browser", "open-design"];
@@ -65,16 +75,28 @@ function ensureRequiredPortals(portals: string[]): string[] {
   return merged;
 }
 
+// Apply the optional visibility contract as the FINAL projection. When no filter
+// is passed this is the identity (unchanged default). When a filter IS passed it
+// has the last word — so a tier that hides browser/open-design wins over the
+// runtime-required force-merge above (those are infra defaults, not a mandate the
+// filter must honor).
+function applyFilter(portals: string[]): string[] {
+  return props.portalFilter ? props.portalFilter(portals) : portals;
+}
+
 onMounted(async () => {
+  // Project the local fallback default through the filter too, so the rail is
+  // already tier-correct on first paint and stays correct if the API is down.
+  visiblePortals.value = applyFilter(visiblePortals.value);
   try {
     const response = await fetch(apiUrl("/api/config/portals"));
     if (!response.ok) return;
     const data = await response.json();
     if (Array.isArray(data.visible_portals) && data.visible_portals.length > 0) {
-      visiblePortals.value = ensureRequiredPortals(data.visible_portals);
+      visiblePortals.value = applyFilter(ensureRequiredPortals(data.visible_portals));
     }
   } catch {
-    // Keep local default when API is not available.
+    // Keep local (already filtered) default when API is not available.
   }
 });
 
