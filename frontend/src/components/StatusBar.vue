@@ -9,7 +9,11 @@
 </script>
 
 <template>
-  <header class="dw-statusbar" data-testid="status-bar">
+  <header
+    class="dw-statusbar"
+    data-testid="status-bar"
+    data-window-drag-region
+  >
     <div class="dw-statusbar__left">
       <slot name="left" />
     </div>
@@ -31,6 +35,21 @@
   border-bottom: 1px solid var(--dw-bd);
   background: var(--dw-sf);
   flex-shrink: 0;
+}
+
+/* Wails desktop: the status bar is the persistent top chrome, so it doubles as
+   the window drag region (drag the bar, no-drag on interactive children). On
+   web this is inert. Platform chrome only — never business logic. */
+.dw-statusbar {
+  -webkit-app-region: drag;
+}
+.dw-statusbar button,
+.dw-statusbar a,
+.dw-statusbar input,
+.dw-statusbar textarea,
+.dw-statusbar select,
+.dw-statusbar [role="button"] {
+  -webkit-app-region: no-drag;
 }
 
 .dw-statusbar__left {

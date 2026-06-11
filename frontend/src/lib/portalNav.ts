@@ -192,8 +192,11 @@ export function pageTitleForRoute(path: string): string {
 }
 
 export function isPortalRouteActive(currentPath: string, item: PortalNavItem): boolean {
+  // "/" is the v6 home dashboard (CHG-014 V2). It is owned by the rail logo tile,
+  // not any portal item, so no portal rail item is active on home. (Previously
+  // "/" was the topic workbench, hence the legacy topic == "/" check, now gone.)
   if (item.name === "topic") {
-    return currentPath.startsWith("/portal/topic") || currentPath === "/" || currentPath.startsWith("/categories") || currentPath.startsWith("/t/");
+    return currentPath.startsWith("/portal/topic") || currentPath.startsWith("/categories") || currentPath.startsWith("/t/");
   }
   if (item.name === "workspace") {
     return currentPath.startsWith("/portal/workspace") || currentPath.startsWith("/ws");

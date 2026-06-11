@@ -13,7 +13,7 @@
 // is honored via the --dw-titlebar-inset padding on the rail top.
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Sheet, SheetContent } from "@ce/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@ce/components/ui/sheet";
 import { useSidebar } from "@ce/components/ui/sidebar";
 import { isPortalRouteActive, enabledPortalNavItems, utilityNavItems } from "@ce/lib/portalNav";
 import { apiUrl } from "@ce/utils/runtimeBase";
@@ -90,6 +90,8 @@ function handleNavigate() {
   <!-- Mobile: the rail lives inside a Sheet driven by the mobile-portal trigger. -->
   <Sheet v-if="isMobile" :open="openMobile" @update:open="setOpenMobile">
     <SheetContent side="left" class="w-auto border-0 bg-transparent p-0 [&>button]:hidden">
+      <!-- Accessible dialog name for screen readers (radix/reka requires one). -->
+      <SheetTitle class="sr-only">导航</SheetTitle>
       <nav class="dw-rail" data-od-id="rail" data-testid="navigation-sidebar">
         <router-link
           to="/"
@@ -254,7 +256,10 @@ function handleNavigate() {
   transition: opacity 0.1s;
   z-index: 99;
 }
-.dw-rb:hover::after {
+/* Show the label on hover AND on keyboard focus so sighted keyboard users
+   tabbing the icon-only rail get the same affordance as mouse users. */
+.dw-rb:hover::after,
+.dw-rb:focus-visible::after {
   opacity: 1;
 }
 
