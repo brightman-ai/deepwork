@@ -72,7 +72,7 @@ const props = withDefaults(defineProps<{
   placeholder: '输入消息...',
   composerMeta: '',
   disabled: false,
-  density: 'regular',
+  density: 'full',
   toolMode: '',
   allowedTools: () => [],
   memoryOn: undefined,

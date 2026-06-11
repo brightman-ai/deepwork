@@ -1,4 +1,10 @@
-export type AssistantDensity = 'regular' | 'compact'
+// RunStream density spectrum (CHG-013 D8): full ⊃ chat ⊃ compact — a single
+// semantic source for the one AssistantStreamSurface base; density only controls
+// visibility/sizing, never forks block rendering.
+//   full    = WS / OD / CLI 全量主流
+//   chat    = chat portal solo (单栏对话)
+//   compact = 伴随边栏 (Browser / Topic companion)
+export type AssistantDensity = 'full' | 'chat' | 'compact'
 
 export type AssistantRole = 'user' | 'assistant' | 'system'
 
@@ -31,6 +37,16 @@ export interface AssistantTaskItem {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+// Extension block (CHG-013 D8): portals register domain-specific blocks via
+// blockRegistry.registerExtension(kind, component). The surface renders them
+// through the registry by passing the whole block as the `block` prop. This is
+// the ONLY sanctioned way to add portal blocks — the base must never branch on
+// `if (portal === 'od')`.
+export interface AssistantExtensionBlock {
+  type: string
+  [key: string]: unknown
+}
+
 export type AssistantBlock =
   | { type: 'text'; content: string }
   | { type: 'waiting'; status: string; startedAt?: number }
@@ -39,6 +55,7 @@ export type AssistantBlock =
   | { type: 'task-plan'; tasks: AssistantTaskItem[] }
   | { type: 'permission'; content: string; effectClass?: string }
   | { type: 'error'; message: string; retryable?: boolean }
+  | AssistantExtensionBlock
 
 export interface AssistantMessage {
   id: string

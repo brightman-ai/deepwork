@@ -254,9 +254,12 @@ function updateToolResult(message: AssistantMessage, tool?: AssistantToolEvent):
   for (let i = 0; i < blocks.length; i += 1) {
     const block = blocks[i]
     if (block.type !== 'tool-group') continue
-    const toolIndex = block.tools.findIndex(item => item.id === tool.id)
+    // The open AssistantExtensionBlock variant (CHG-013 D8) prevents TS from
+    // narrowing `tools` off the discriminant alone; assert the concrete variant.
+    const toolGroup = block as Extract<AssistantBlock, { type: 'tool-group' }>
+    const toolIndex = toolGroup.tools.findIndex(item => item.id === tool.id)
     if (toolIndex < 0) continue
-    const tools = [...block.tools]
+    const tools = [...toolGroup.tools]
     tools[toolIndex] = { ...tools[toolIndex], ...tool }
     blocks[i] = { type: 'tool-group', tools }
     message.blocks = blocks

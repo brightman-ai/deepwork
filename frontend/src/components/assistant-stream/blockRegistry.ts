@@ -15,10 +15,17 @@ class BlockRegistry {
     this.entries.set(kind, { kind, component, core: true })
   }
 
-  registerExtension(kind: string, component: Component) {
-    if (this.entries.get(kind)?.core) {
+  registerExtension(kind: string, component: Component, opts?: { override?: boolean }) {
+    const existing = this.entries.get(kind)
+    if (existing?.core) {
       console.warn(`Cannot override core block: ${kind}`)
       return
+    }
+    // Re-registering the same component is an idempotent no-op; replacing a
+    // different owner's extension requires an explicit override so block
+    // ownership stays visible (CHG-013 D8).
+    if (existing && existing.component !== component && !opts?.override) {
+      throw new Error(`Extension block "${kind}" is already registered; pass { override: true } to replace it`)
     }
     this.entries.set(kind, { kind, component, core: false })
   }

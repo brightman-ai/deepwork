@@ -242,7 +242,7 @@ const props = withDefaults(defineProps<{
   error: '',
   disabled: false,
   readonly: false,
-  density: 'regular',
+  density: 'full',
   showHeader: true,
 })
 
@@ -363,7 +363,10 @@ function resolveBlockComponent(type: AssistantBlock['type']) {
 // Keep named imports for potential direct use in subcomponents.
 void ThinkingBlock, ToolGroupBlock, TaskPlanBlock, WaitingBlock, PermissionBlock, ErrorBlock, UsageFooter
 
-function renderMarkdown(content: string): string {
+function renderMarkdown(value: unknown): string {
+  // Accepts unknown because the open AssistantExtensionBlock variant (CHG-013 D8)
+  // widens text-block `content` to unknown at the call site; coerce defensively.
+  const content = typeof value === 'string' ? value : value == null ? '' : String(value)
   if (!content) return ''
   let html = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   html = html.replace(/```([\s\S]*?)```/g, (_, block) => `<pre class="as-code"><code>${String(block).trim()}</code></pre>`)
@@ -829,6 +832,17 @@ function renderMarkdown(content: string): string {
   box-shadow: 0 6px 18px rgba(23, 32, 51, 0.14);
 }
 
+/* Density spectrum (CHG-013 D8): full (default sizing above) ⊃ chat ⊃ compact.
+   chat = single-column conversation: slightly tighter than full, full-size text.
+   compact = companion sidebar: tightest padding + smaller avatar/text. */
+.as-pane--chat .as-pane__timeline {
+  padding: 10px 12px;
+}
+
+.as-pane--chat .as-message {
+  padding: 9px 0;
+}
+
 .as-pane--compact .as-pane__header {
   padding: 8px 10px;
 }
@@ -845,6 +859,11 @@ function renderMarkdown(content: string): string {
 .as-pane--compact .as-message__avatar {
   width: 24px;
   height: 24px;
+}
+
+.as-pane--compact .as-block,
+.as-pane--compact .as-block--text {
+  font-size: 12.5px;
 }
 
 .as-pane--compact .as-pane__composer {

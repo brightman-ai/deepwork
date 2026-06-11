@@ -4,7 +4,10 @@ import PaneShell from './PaneShell.vue'
 import type { PaneShellProps } from './PaneShell.vue'
 
 interface StreamPaneProps {
-  mode?: 'full' | 'compact' | 'mini'
+  // Layout sizing for the generic pane shell (NOT RunStream density — that is
+  // AssistantDensity on AssistantStreamSurface). Vestigial 'mini' removed
+  // (CHG-013 D8: it had zero consumers and read as a third density track).
+  mode?: 'full' | 'compact'
   direction?: 'append' | 'prepend'
   stickyScroll?: boolean
   showComposer?: boolean
@@ -54,7 +57,7 @@ defineExpose({ scrollToBottom, jumpToBottom })
 const containerClass = computed(() => ({
   'flex flex-col flex-1 overflow-hidden': true,
   'text-sm': props.mode === 'full',
-  'text-xs': props.mode === 'compact' || props.mode === 'mini',
+  'text-xs': props.mode === 'compact',
 }))
 </script>
 
