@@ -1,9 +1,22 @@
+<script lang="ts">
+// 模块级唯一 id 计数（非 setup，全实例共享递增）。
+let xpillSeq = 0
+</script>
+
 <script setup lang="ts">
+// CHG-014 D2: 重塑到原型 xpill「已探索」范式 (原型 1094-1101)。
+// xh 头 (已探索 N 文件·M 命令 + chev) → 展开 xb → 嵌套 sbl 工具行
+// (chip ch-read/ch-bash/ch-edit/ch-write + bpath)。family→chip 映射保留。
+import { ref } from 'vue'
 import type { AssistantBlock, AssistantToolEvent } from '../types'
 
 const props = defineProps<{
   block: Extract<AssistantBlock, { type: 'tool-group' }>
 }>()
+
+const open = ref(false)
+// F8 a11y: 折叠头 ↔ 内容关联。
+const bodyId = `as-xpill-body-${++xpillSeq}`
 
 type ToolFamily = 'todo' | 'write' | 'edit' | 'read' | 'bash' | 'search' | 'fetch' | 'browser' | 'workspace' | 'generic'
 
@@ -21,57 +34,36 @@ function toolFamily(tool: AssistantToolEvent): ToolFamily {
   return 'generic'
 }
 
-function toolIcon(family: ToolFamily): string {
-  return ({
-    todo: '□',
-    write: '+',
-    edit: '✎',
-    read: '↗',
-    bash: '$',
-    search: '⌕',
-    fetch: '↬',
-    browser: '◉',
-    workspace: '◇',
-    generic: '·',
-  } as Record<ToolFamily, string>)[family]
+// family → ch-* chip 类 (原型角色色系)。read=blu, bash=ok, edit=warn, write=pur, 其余=think(ac)。
+function chipClass(family: ToolFamily): string {
+  if (family === 'read') return 'v6-chip--read'
+  if (family === 'bash') return 'v6-chip--bash'
+  if (family === 'edit') return 'v6-chip--edit'
+  if (family === 'write') return 'v6-chip--write'
+  return 'v6-chip--agent'
 }
 
-function toolVerb(family: ToolFamily): string {
-  return ({
-    todo: '任务',
-    write: '写入',
-    edit: '编辑',
-    read: '读取',
-    bash: '执行',
-    search: '检索',
-    fetch: '获取',
-    browser: '浏览器',
-    workspace: '保存',
-    generic: '操作',
-  } as Record<ToolFamily, string>)[family]
+// chip 文本 = 工具能力名 (原型用 Read/Bash/Edit)
+function chipLabel(tool: AssistantToolEvent, family: ToolFamily): string {
+  if (family === 'read') return 'Read'
+  if (family === 'bash') return 'Bash'
+  if (family === 'edit') return 'Edit'
+  if (family === 'write') return 'Write'
+  if (family === 'search') return 'Search'
+  if (family === 'fetch') return 'Fetch'
+  if (family === 'browser') return 'Browser'
+  if (family === 'todo') return 'Todo'
+  if (family === 'workspace') return 'Save'
+  return tool.name.slice(0, 12)
 }
 
-function browserToolName(name: string): string {
-  const lower = name.toLowerCase()
-  if (lower.includes('inspect')) return '检查页面'
-  if (lower.includes('search')) return '检索页面'
-  if (lower.includes('read')) return '读取页面'
-  return '浏览器动作'
-}
-
-function toolDisplayName(tool: AssistantToolEvent, family: ToolFamily): string {
-  if (family === 'browser') return browserToolName(tool.name)
-  if (family === 'workspace') return '保存材料'
-  return toolVerb(family)
-}
-
-function toolSummary(tool: AssistantToolEvent, family: ToolFamily): string {
+function toolPath(tool: AssistantToolEvent, family: ToolFamily): string {
   const input = (tool.input ?? {}) as Record<string, unknown>
-  if (family === 'bash') return String(input.command ?? '').slice(0, 90)
-  if (family === 'read' || family === 'write' || family === 'edit') return String(input.path ?? input.file_path ?? '').slice(0, 90)
-  if (family === 'search') return String(input.query ?? input.pattern ?? '').slice(0, 90)
-  if (family === 'fetch') return String(input.url ?? '').slice(0, 90)
-  if (family === 'browser') return String(input.query ?? input.chunk_id ?? input.scope ?? '').slice(0, 90)
+  if (family === 'bash') return String(input.command ?? '').slice(0, 120)
+  if (family === 'read' || family === 'write' || family === 'edit') return String(input.path ?? input.file_path ?? '').slice(0, 120)
+  if (family === 'search') return String(input.query ?? input.pattern ?? '').slice(0, 120)
+  if (family === 'fetch') return String(input.url ?? '').slice(0, 120)
+  if (family === 'browser') return String(input.query ?? input.chunk_id ?? input.scope ?? '').slice(0, 120)
   return tool.name
 }
 
@@ -81,67 +73,145 @@ function toolState(tool: AssistantToolEvent): 'error' | 'running' | 'done' {
   return 'done'
 }
 
-function stateLabel(state: 'error' | 'running' | 'done'): string {
-  if (state === 'error') return '错误'
-  if (state === 'running') return '执行中'
-  return '完成'
+// 头部摘要: N 个文件 · M 条命令 (按 family 聚类)
+function headSummary(): string {
+  const files = props.block.tools.filter(t => ['read', 'write', 'edit'].includes(toolFamily(t))).length
+  const cmds = props.block.tools.filter(t => toolFamily(t) === 'bash').length
+  const other = props.block.tools.length - files - cmds
+  const parts: string[] = []
+  if (files) parts.push(`${files} 个文件`)
+  if (cmds) parts.push(`${cmds} 条命令`)
+  if (other && !parts.length) parts.push(`${props.block.tools.length} 项操作`)
+  else if (other) parts.push(`${other} 项其他`)
+  return parts.join(' · ')
 }
+
+const running = () => props.block.tools.some(t => t.output === undefined && !t.is_error)
 </script>
 
 <template>
-  <details
+  <div
     v-if="props.block.tools.length"
-    class="as-block as-tool-group"
-    :open="props.block.tools.some(t => t.output === undefined && !t.is_error) || undefined"
+    class="v6-xpill"
+    :class="{ 'v6-xpill--open': open }"
     data-testid="assistant-tool-group"
   >
-    <summary>
-      <span class="as-block__icon">{{ toolIcon(toolFamily(props.block.tools[0])) }}</span>
-      <strong>
-        {{
-          props.block.tools.length === 1
-            ? toolDisplayName(props.block.tools[0], toolFamily(props.block.tools[0]))
-            : `${toolVerb(toolFamily(props.block.tools[0]))} ×${props.block.tools.length}`
-        }}
-      </strong>
-      <span v-if="props.block.tools.length === 1" class="as-tool__summary">
-        {{ toolSummary(props.block.tools[0], toolFamily(props.block.tools[0])) }}
-      </span>
-      <span
-        v-if="props.block.tools.some(t => t.output === undefined && !t.is_error)"
-        class="as-spinner as-spinner--inline"
-      />
-      <span
-        :class="[
-          'as-badge',
-          props.block.tools.some(t => t.is_error)
-            ? 'as-badge--error'
-            : props.block.tools.some(t => t.output === undefined && !t.is_error)
-              ? 'as-badge--running'
-              : 'as-badge--done',
-        ]"
-      >
-        {{
-          props.block.tools.some(t => t.is_error)
-            ? '错误'
-            : props.block.tools.some(t => t.output === undefined && !t.is_error)
-              ? '执行中'
-              : '完成'
-        }}
-      </span>
-    </summary>
-    <div class="as-tool-group__list">
-      <div
-        v-for="tool in props.block.tools"
-        :key="tool.id"
-        :class="['as-block', 'as-tool', `as-tool--${toolFamily(tool).toLowerCase()}`]"
-        data-testid="assistant-tool-card"
-      >
-        <span class="as-block__icon">{{ toolIcon(toolFamily(tool)) }}</span>
-        <strong>{{ toolDisplayName(tool, toolFamily(tool)) }}</strong>
-        <span class="as-tool__summary">{{ toolSummary(tool, toolFamily(tool)) }}</span>
-        <span :class="['as-badge', `as-badge--${toolState(tool)}`]">{{ stateLabel(toolState(tool)) }}</span>
+    <button
+      type="button"
+      class="v6-xh"
+      :aria-expanded="open"
+      :aria-controls="bodyId"
+      @click="open = !open"
+    >
+      <span>{{ running() ? '探索中' : '已探索' }}</span>
+      <span class="v6-xn">{{ headSummary() }}</span>
+      <span v-if="running()" class="v6-xspin" />
+      <span class="v6-bchev">▶</span>
+    </button>
+    <div v-if="open" :id="bodyId" class="v6-xb">
+      <div class="v6-nest">
+        <div
+          v-for="tool in props.block.tools"
+          :key="tool.id"
+          class="v6-sbl"
+          :class="`v6-sbl--${toolState(tool)}`"
+          data-testid="assistant-tool-card"
+        >
+          <div class="v6-bh">
+            <span class="v6-chip" :class="chipClass(toolFamily(tool))">{{ chipLabel(tool, toolFamily(tool)) }}</span>
+            <span class="v6-bpath">{{ toolPath(tool, toolFamily(tool)) }}</span>
+          </div>
+        </div>
       </div>
     </div>
-  </details>
+  </div>
 </template>
+
+<style scoped>
+.v6-xpill { margin: 7px 0; }
+.v6-xh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border: 1px solid var(--dw-bd);
+  border-radius: 999px;
+  background: var(--dw-sf);
+  font: inherit;
+  font-size: 11px;
+  color: var(--dw-mu);
+  cursor: pointer;
+  user-select: none;
+}
+.v6-xh:hover { border-color: var(--dw-mu); color: var(--dw-fg); }
+.v6-xh:focus-visible {
+  outline: 2px solid var(--dw-ac);
+  outline-offset: 2px;
+}
+.v6-xn { font-family: var(--dw-mono); font-size: 10px; }
+.v6-xb { margin-top: 7px; padding-left: 6px; }
+.v6-nest {
+  padding: 4px 0 0 16px;
+  border-left: 2px solid var(--dw-bd);
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+}
+.v6-sbl {
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf);
+  border-radius: var(--dw-r2);
+}
+.v6-sbl--running { border-color: var(--dw-ac-border-dim); }
+.v6-sbl--error { border-color: var(--dw-red-border-dim); }
+.v6-bh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+.v6-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--dw-mono);
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid var(--dw-bd);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.v6-chip--read { color: var(--dw-blu); background: var(--dw-blu-dim); }
+.v6-chip--bash { color: var(--dw-ok); background: var(--dw-ok-dim); }
+.v6-chip--edit { color: var(--dw-warn); background: var(--dw-warn-surface-dim); }
+.v6-chip--write { color: var(--dw-pur); background: var(--dw-pur-surface-dim); }
+.v6-chip--agent { color: var(--dw-ac); background: var(--dw-ac-dim); }
+.v6-bpath {
+  font-family: var(--dw-mono);
+  font-size: 11px;
+  color: var(--dw-mu);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.v6-bchev {
+  font-size: 9px;
+  color: var(--dw-mu);
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+.v6-xpill--open .v6-xh .v6-bchev { transform: rotate(90deg); }
+.v6-xspin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--dw-ac-border-dim);
+  border-top-color: var(--dw-ac);
+  animation: v6-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes v6-spin { to { transform: rotate(360deg); } }
+</style>

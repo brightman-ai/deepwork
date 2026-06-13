@@ -305,6 +305,12 @@ function usageFrom(event: AssistantWorkstreamEvent): AssistantUsageInfo {
     output_tokens: numberFrom(event.done?.output_tokens ?? event.usage?.output_tokens),
     cost_usd: numberFrom(event.usage?.cost_usd ?? event.meta?.cost_usd),
     estimated: Boolean(event.usage?.estimated),
+    // CHG-014 S8 F5: rmeta footer 读 ttft_ms/cache_read_tokens，此前流式路径不映射
+    // → 永远显示「—」。从 done/usage/meta 三源回退填充。无源仍缺 → undefined → 渲染「—」。
+    ttft_ms: numberFrom(event.done?.ttft_ms ?? event.usage?.ttft_ms ?? event.meta?.ttft_ms),
+    cache_read_tokens: numberFrom(
+      event.done?.cache_read_tokens ?? event.usage?.cache_read_tokens ?? event.meta?.cache_read_tokens,
+    ),
   }
 }
 

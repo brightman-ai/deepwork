@@ -41,6 +41,27 @@
   --dw-pur: oklch(70% 0.11 300);
   --dw-pur-dim: oklch(70% 0.11 300 / 0.10);
 
+  /* ── semantic alpha tokens (CHG-014 S8 F9) ───────────────────────────────
+     -dim 已是「填充底」(≈0.10-0.14)。新增两族补流习语块用色，组件只引 token、
+     不再内联 oklch()：
+       *-border-dim    = 边框低对比 (≈0.3-0.4 alpha)
+       *-surface-dim   = 极淡填充底 (≈0.07-0.10 alpha)，比 -dim 更轻
+     与 layer-2 shadcn 三元保持同一调色板，编辑时两层同步。 */
+  --dw-ac-border-dim: oklch(72% 0.14 55 / 0.3);
+  --dw-ac-border-focus: oklch(72% 0.14 55 / 0.5);   /* composer focus ring 边 */
+  --dw-warn-border-dim: oklch(74% 0.12 62 / 0.4);
+  --dw-warn-surface-dim: oklch(74% 0.12 62 / 0.07);
+  --dw-warn-chip-dim: oklch(74% 0.12 62 / 0.12);    /* appr chip 底 */
+  --dw-blu-border-dim: oklch(68% 0.12 245 / 0.35);
+  --dw-ok-surface-dim: oklch(70% 0.12 158 / 0.10);
+  --dw-red-border-dim: oklch(64% 0.17 25 / 0.4);
+  --dw-red-surface-dim: oklch(64% 0.17 25 / 0.10);
+  --dw-pur-surface-dim: oklch(70% 0.11 300 / 0.10);
+  --dw-warn-border-soft: oklch(74% 0.12 62 / 0.45); /* envchip warn 边（比 -border-dim 略实）*/
+  --dw-warn-surface-soft: oklch(74% 0.12 62 / 0.08);
+  --dw-blu-hover-dim: oklch(68% 0.12 245 / 0.24);   /* fref chip hover 底 */
+  --dw-shadow-pop: 0 6px 18px oklch(0% 0 0 / 0.5);  /* popover/scroll-btn 投影 */
+
   --dw-heat-hi: #fe7a15;
   --dw-heat-md: #cf7721;
   --dw-heat-lo: #9b764f;

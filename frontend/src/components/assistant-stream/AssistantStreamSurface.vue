@@ -61,7 +61,14 @@
           {{ message.role === 'system' ? '!' : 'AI' }}
         </div>
         <div class="as-message__body">
-          <div v-if="message.role === 'user'" class="as-message__user-bubble">{{ message.content }}</div>
+          <UserBubble
+            v-if="message.role === 'user'"
+            :content="String(message.content ?? '')"
+            :round="userRoundOf(index)"
+            :current="userBubbleNav ? (message.versionIndex ?? 1) : undefined"
+            :total="userBubbleNav ? (message.versionCount ?? userBubbleTotal) : undefined"
+            @nav="(dir) => emit('block-action', { action: 'user-nav', block: message, message, index, payload: { dir } })"
+          />
           <template v-else>
             <template
               v-for="(block, blockIndex) in blocksForMessage(message)"
@@ -77,6 +84,8 @@
                 v-else
                 :block="block"
                 :streaming="message.streaming || (streaming && index === messages.length - 1)"
+                :actionable="blockActionable"
+                v-on="blockActionHandlers(block, message, index)"
               />
             </template>
             <slot
@@ -89,6 +98,8 @@
               v-if="message.role === 'assistant' && shouldShowFooter(message)"
               :message="message"
               :streaming="message.streaming || (streaming && index === messages.length - 1)"
+              :actionable="blockActionable"
+              v-on="blockActionHandlers({ type: 'usage' } as unknown as AssistantBlock, message, index)"
             />
           </template>
         </div>
@@ -196,6 +207,7 @@ import {
   PermissionBlock,
   ErrorBlock,
   UsageFooter,
+  UserBubble,
 } from './blocks'
 
 const props = withDefaults(defineProps<{
@@ -221,6 +233,12 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   density?: AssistantDensity
   showHeader?: boolean
+  // F2: 消费点接线了 @block-action 处理 → 置 true 才渲染块内动作钮（审批/产物导出等）。
+  // 默认 false：未接线时不显示可点但无效的按钮（数据诚实）。
+  blockActionable?: boolean
+  // F10: chat 等消费点接入用户消息版本切换 → 置 true 才显示 UserBubble nav 钮。
+  userBubbleNav?: boolean
+  userBubbleTotal?: number
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -244,11 +262,28 @@ const props = withDefaults(defineProps<{
   readonly: false,
   density: 'full',
   showHeader: true,
+  blockActionable: false,
+  userBubbleNav: false,
+  userBubbleTotal: 0,
 })
+
+// CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
+// open/export、qbanner goto、strip expand、permission allow/deny、user-bubble nav…），
+// 但块本身零业务 → surface 统一归集为一个 block-action 事件转发给消费者。
+// 消费点接线后用 block-actionable 打开按钮渲染；未接线时按钮不渲染（数据诚实，
+// 不显示可点但无效的钮 — F2）。
+export interface AssistantBlockAction {
+  action: string                          // 'open'|'export'|'goto'|'expand'|'allow-once'|'allow-always'|'deny'|'user-nav'|'copy'|'retry'|'project'|'branch'
+  block: unknown                          // 触发块（含 type）
+  message: AssistantMessage
+  index: number                           // 消息在时间线中的下标
+  payload?: Record<string, unknown>       // 附加数据（如 nav dir）
+}
 
 const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'clear-error'): void
+  (e: 'block-action', action: AssistantBlockAction): void
 }>()
 
 const draft = ref('')
@@ -284,6 +319,17 @@ watch(
 onMounted(() => {
   resizeComposer()
 })
+
+// CHG-014-J D2: msg-u rnd chip — the #N round label is the ordinal of this user
+// message within the timeline (1-based count of user roles up to `index`). Pure
+// presentational derivation from the message list; no new data dependency.
+function userRoundOf(index: number): number {
+  let n = 0
+  for (let i = 0; i <= index && i < props.messages.length; i++) {
+    if (props.messages[i].role === 'user') n++
+  }
+  return n
+}
 
 function blocksForMessage(message: AssistantMessage): AssistantBlock[] {
   if (message.blocks?.length) return message.blocks
@@ -358,6 +404,29 @@ defineExpose({
 function resolveBlockComponent(type: AssistantBlock['type']) {
   if (type === 'text') return null
   return blockRegistry.resolve(type) ?? null
+}
+
+// F2/F3: 把每个块声明的业务 emit 统一归集为单个 block-action 透传给消费者。
+// 块组件只 emit 语义动作名（如 ArtifactCard 'open'/'export'、QBanner 'goto'、
+// StripBlock 'expand'、PermissionBlock 'allow-once'/'allow-always'/'deny'、
+// UsageFooter 'copy'/'retry'/'project'/'branch'）。surface 不解释语义，只转发。
+// v-on 绑定整张表是无害的：组件未声明的事件名不会触发。
+function blockActionHandlers(block: AssistantBlock, message: AssistantMessage, index: number) {
+  const fire = (action: string, payload?: Record<string, unknown>) =>
+    emit('block-action', { action, block, message, index, payload })
+  return {
+    open: () => fire('open'),
+    export: () => fire('export'),
+    goto: () => fire('goto'),
+    expand: () => fire('expand'),
+    'allow-once': () => fire('allow-once'),
+    'allow-always': () => fire('allow-always'),
+    deny: () => fire('deny'),
+    copy: () => fire('copy'),
+    retry: () => fire('retry'),
+    project: () => fire('project'),
+    branch: () => fire('branch'),
+  }
 }
 
 // Keep named imports for potential direct use in subcomponents.
@@ -584,15 +653,8 @@ function renderMarkdown(value: unknown): string {
   gap: 6px;
 }
 
-/* v6 user bubble = neutral surface (.msg-u .bub uses --sf3), not a colored fill */
-.as-message__user-bubble {
-  max-width: min(80%, 720px);
-  padding: 8px 12px;
-  border-radius: 16px 16px 4px 16px;
-  background: var(--dw-sf3);
-  color: var(--dw-fg);
-  white-space: pre-wrap;
-}
+/* v6 user bubble: the inline div was replaced by the <UserBubble> block (msg-u
+   右对齐 amber-surface 泡 + rnd #N chip). The block owns its own scoped styles. */
 
 .as-block {
   border-radius: 8px;
@@ -811,7 +873,7 @@ function renderMarkdown(value: unknown): string {
 }
 
 .as-composer__input:focus {
-  border-color: oklch(72% 0.14 55 / 0.5);
+  border-color: var(--dw-ac-border-focus);
   box-shadow: 0 0 0 3px var(--dw-ac-dim);
 }
 

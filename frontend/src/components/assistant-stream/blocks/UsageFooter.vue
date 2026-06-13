@@ -1,44 +1,122 @@
 <script setup lang="ts">
+// CHG-014 D2: 重塑到原型 rmeta 轮次 footer (原型 1107)。
+// TTFT△ / 总耗时 / ↓in ↑out / 缓存读 / 模型 / 时间 + hover 动作钮 (⧉⟳⤴⑂)。
+// 数据 ← D5① turns。缺源字段一律显「—」(不省整行，保持栅格稳定)。
+import { computed } from 'vue'
 import type { AssistantMessage, AssistantUsageInfo } from '../types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   message: AssistantMessage
   streaming?: boolean
+  // F2: 消费点未接 copy/retry/project/branch → 不渲染动作钮（数据诚实，metrics 行照常显示）。
+  actionable?: boolean
+}>(), {
+  actionable: true,
+})
+
+const emit = defineEmits<{
+  (e: 'copy'): void
+  (e: 'retry'): void
+  (e: 'project'): void
+  (e: 'branch'): void
 }>()
 
 function elapsedFrom(startedAt: number): string {
   return `${((Date.now() - startedAt) / 1000).toFixed(1)}s`
 }
 
-function elapsedLabel(message: AssistantMessage, streaming: boolean): string {
-  if (streaming && message.started_at_ms) return elapsedFrom(message.started_at_ms)
-  if (!message.elapsed_ms) return ''
-  return `${(message.elapsed_ms / 1000).toFixed(1)}s`
+const usage = computed<AssistantUsageInfo | undefined>(() => props.message.live_usage ?? props.message.usage)
+
+// 缺数据 → 「—」哨兵。运行时可得的 TTFT 带 △ 软标。
+function num(value?: number): string {
+  if (value === undefined || value < 0) return '—'
+  return Math.round(value).toLocaleString()
 }
 
-function tokenLabel(prefix: string, value?: number, estimated?: boolean): string {
-  if (value === undefined || value < 0) return ''
-  return `${prefix}${estimated ? '≈' : ' '}${Math.round(value).toLocaleString()}`
-}
+const ttft = computed(() => {
+  const ms = usage.value?.ttft_ms
+  return ms === undefined || ms < 0 ? '—' : `${(ms / 1000).toFixed(1)}s`
+})
 
-function usageParts(message: AssistantMessage, streaming: boolean): string[] {
-  const usage: AssistantUsageInfo | undefined = message.live_usage ?? message.usage
-  return [
-    streaming ? '工作中' : '完成',
-    elapsedLabel(message, streaming),
-    tokenLabel('in', usage?.input_tokens, usage?.estimated),
-    tokenLabel('think', usage?.thinking_tokens, usage?.estimated),
-    tokenLabel('out', usage?.output_tokens, usage?.estimated),
-    usage?.cost_usd !== undefined ? `$${usage.cost_usd.toFixed(4)}` : '',
-  ].filter(Boolean)
-}
+const elapsed = computed(() => {
+  if (props.streaming && props.message.started_at_ms) return elapsedFrom(props.message.started_at_ms)
+  if (props.message.elapsed_ms) return `${(props.message.elapsed_ms / 1000).toFixed(1)}s`
+  return '—'
+})
+
+const tokensIO = computed(() => {
+  const i = usage.value?.input_tokens
+  const o = usage.value?.output_tokens
+  if (i === undefined && o === undefined) return '—'
+  return `↓${num(i)} ↑${num(o)}`
+})
+
+const cacheRead = computed(() => num(usage.value?.cache_read_tokens))
+const model = computed(() => props.message.runtime?.model || '—')
+const clock = computed(() => {
+  const ts = props.message.started_at_ms
+  if (!ts) return '—'
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+})
 </script>
 
 <template>
-  <div class="as-footer" data-testid="assistant-usage-footer">
-    <span :class="['as-footer__dot', props.streaming ? 'as-footer__dot--active' : 'as-footer__dot--done']" />
-    <span v-for="part in usageParts(props.message, props.streaming ?? false)" :key="part" class="as-footer__item">
-      {{ part }}
+  <div class="v6-rmeta" data-testid="assistant-usage-footer">
+    <span class="v6-rmeta__t">
+      <span title="TTFT 仅运行时可得">TTFT {{ ttft }}<i class="v6-rmeta__vol">△</i></span>
+      <span>总耗时 {{ elapsed }}</span>
+      <span>{{ tokensIO }}</span>
+      <span>缓存读 {{ cacheRead }}</span>
+      <span>{{ model }}</span>
+      <span>{{ clock }}</span>
+    </span>
+    <span v-if="props.actionable" class="v6-rmeta__acts">
+      <button type="button" @click="emit('copy')">⧉ 复制</button>
+      <button type="button" @click="emit('retry')">⟳ 重试</button>
+      <button type="button" @click="emit('project')">⤴ 投影</button>
+      <button type="button" @click="emit('branch')">⑂ 分支</button>
     </span>
   </div>
 </template>
+
+<style scoped>
+.v6-rmeta {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+  font-family: var(--dw-mono);
+  font-size: 10.5px;
+  color: var(--dw-mu);
+  min-height: 22px;
+}
+.v6-rmeta__t { display: inline; }
+.v6-rmeta__t span + span::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.45;
+}
+.v6-rmeta__vol {
+  opacity: 0.6;
+  font-size: 8px;
+  vertical-align: 3px;
+  margin-left: 1px;
+  font-style: normal;
+}
+.v6-rmeta__acts {
+  display: none;
+  gap: 2px;
+  margin-left: 12px;
+}
+.v6-rmeta:hover .v6-rmeta__acts { display: flex; }
+.v6-rmeta__acts button {
+  padding: 2px 8px;
+  border-radius: var(--dw-r);
+  color: var(--dw-mu);
+  font-size: 10.5px;
+  font-family: var(--dw-font);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.v6-rmeta__acts button:hover { background: var(--dw-sf2); color: var(--dw-fg); }
+</style>
