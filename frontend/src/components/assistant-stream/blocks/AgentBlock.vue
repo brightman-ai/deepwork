@@ -32,6 +32,33 @@ const label = computed(() => {
   return t ? `Agent · ${t}` : 'Agent'
 })
 
+// CHG-014 P3b (Gap-4): 子 agent 用量行 — 「↓in ↑out · {dur}」。
+// 数据诚实: 缺则渲染「—」(claude 不内联子 agent usage → tokens 常缺;
+// duration 由后端 tool_use→tool_result 时间差推导, 通常有真值)。
+function fmtTok(n?: number): string {
+  if (n == null || n < 0) return '—'
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`
+  return String(n)
+}
+function fmtDur(ms?: number): string {
+  if (ms == null || ms <= 0) return '—'
+  if (ms < 1000) return `${ms}ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`
+  const m = Math.floor(s / 60)
+  return `${m}m${Math.round(s % 60)}s`
+}
+const usage = computed(() => {
+  const b = props.block
+  const hasAny = b.inTokens != null || b.outTokens != null || b.durationMs != null
+  if (!hasAny) return null
+  return {
+    inTok: fmtTok(b.inTokens),
+    outTok: fmtTok(b.outTokens),
+    dur: fmtDur(b.durationMs),
+  }
+})
+
 // children 含 text → 内联 markdown (与 surface 一致); 余者 → blockRegistry component。
 function isText(b: AssistantBlock): b is { type: 'text'; content: string } {
   return b.type === 'text'
@@ -62,6 +89,12 @@ const resultHtml = computed(() => (props.block.result ? renderMd(props.block.res
       <span class="as-agent__fork" aria-hidden="true">⑂</span>
       <span class="as-agent__chip">{{ label }}</span>
       <span v-if="props.block.description" class="as-agent__desc">{{ props.block.description }}</span>
+      <!-- 子 agent 用量行 (CHG-014 P3b): ↓in ↑out · 耗时; 缺则「—」(诚实降级)。 -->
+      <span v-if="usage" class="as-agent__usage" title="子 agent 用量 / 耗时">
+        <span class="as-agent__um">↓{{ usage.inTok }}</span>
+        <span class="as-agent__um">↑{{ usage.outTok }}</span>
+        <span class="as-agent__um">· {{ usage.dur }}</span>
+      </span>
       <span class="as-agent__chev" aria-hidden="true">▶</span>
     </button>
 
@@ -146,10 +179,22 @@ const resultHtml = computed(() => (props.block.result ? renderMd(props.block.res
   white-space: nowrap;
   min-width: 0;
 }
+/* 子 agent 用量 chips — mono, 右侧, 紧凑。缺值显「—」由组件计算。 */
+.as-agent__usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--dw-mono);
+  font-size: 10px;
+  color: var(--dw-mu);
+}
+.as-agent__um { white-space: nowrap; }
 .as-agent__chev {
   font-size: 9px;
   color: var(--dw-mu);
-  margin-left: auto;
+  margin-left: 8px;
   transition: transform 0.15s;
   flex-shrink: 0;
 }

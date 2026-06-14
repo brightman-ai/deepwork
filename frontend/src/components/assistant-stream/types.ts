@@ -137,6 +137,24 @@ export interface AssistantAgentBlock {
   result?: string              // subagent 返回结果摘要（tool_result）
   isError?: boolean            // 子流失败
   children?: AssistantBlock[]  // 嵌套子流 blocks（subagent 内部执行；空 = 仅头部）
+  // CHG-014 P3b (Gap-4): 该子 agent 的用量 / 耗时。durationMs = 端到端真实墙钟
+  // (tool_use→tool_result 时间差, 后端推导)。inTokens/outTokens 仅当 runtime 内联
+  // 子 agent 自身 usage 才有 —— claude 不内联 + sidechain 缺 → 缺则渲染「—」(不伪造)。
+  durationMs?: number          // 子流总耗时 (ms, 真实)
+  inTokens?: number            // ↓in (缺→「—」)
+  outTokens?: number           // ↑out (缺→「—」)
+}
+
+// CHG-014 P3b (Gap-4): task-notification 楼层块 — 后台任务 / 派发 agent 完成的
+// 运行时系统事件 (claude `<task-notification>` user 行, 真 schema 见 sessionsource)。
+// 一等 block kind (扩展点: 未来更多系统事件块同范式)。紧凑单行卡 (图标 + 状态徽章 +
+// 简述 + 右对齐 mono 时间), 复用 .ai-chip 视觉语汇, 不占满宽气泡。
+export interface AssistantTaskNotificationBlock {
+  type: 'task-notification'
+  status?: 'completed' | 'failed' | 'killed' | (string & {})  // 通知状态
+  summary?: string             // <summary> 简述
+  taskId?: string              // runtime 任务 id (调试/round-trip)
+  at?: string                  // ISO 时刻 (右对齐 mono)
 }
 
 export type AssistantBlock =
@@ -153,6 +171,7 @@ export type AssistantBlock =
   | AssistantQBannerBlock
   | AssistantDiffBlock
   | AssistantAgentBlock
+  | AssistantTaskNotificationBlock
   | AssistantExtensionBlock
 
 export interface AssistantMessage {
@@ -196,7 +215,18 @@ export interface AssistantSessionCreatedEvent {
   sessionId: number
 }
 
-// CHG-014 D2: RoundNav 一组件两密度。数据 ← D5① turns。
+// CHG-014 P4 (Gap-5): RoundNav 楼层作者 — AI/Human 区分头像。
+// 单一数据源: role/author 进 AssistantRoundItem 契约, RoundNav 纯渲染 (装配方喂数据)。
+// 扩展性: role 不限死 human/ai, 留 string 容未来多 agent/多用户角色;
+// author.avatarKey → 头像色档 (av-1..5 / 哈希 seed); avatarUrl 优先 (真实头像图)。
+export interface AssistantRoundAuthor {
+  name: string               // 作者名 (浮窗加粗显示)
+  // 头像色档: 'human' | 'ai' 语义键, 或 'av-1'..'av-5' 显式色, 或任意 seed (哈希成色)。
+  // 缺省时 RoundNav 按 role 推断 (human→暖琥珀, ai→蓝)。
+  avatarKey?: string
+  avatarUrl?: string         // 真实头像图 URL (优先于字母仿头像)
+  initial?: string           // 仿头像字母 (缺则取 name 首字, H=human/A=ai 兜底)
+}
 export interface AssistantRoundItem {
   index: number              // #N
   title: string              // 用户轮摘要
@@ -206,6 +236,10 @@ export interface AssistantRoundItem {
   duration?: string          // 「2.1s」
   current?: boolean          // cur 琥珀
   visited?: boolean          // persistent tline: 已读楼层灰化 (topic last-read 推进)
+  // P4 (Gap-5): 该轮发起者角色 + 头像。'human'=人类发帖/提问, 'ai'=agent 回复;
+  // 留 string 容多 agent/多用户。RoundNav hover/persistent 浮窗依此渲染仿头像区分。
+  role?: 'human' | 'ai' | (string & {})
+  author?: AssistantRoundAuthor
 }
 
 // persistent (tline) 密度的额外字段

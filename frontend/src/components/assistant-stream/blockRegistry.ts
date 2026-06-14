@@ -6,6 +6,8 @@ type BlockKind = 'text' | 'thinking' | 'tool-group' | 'task-plan' | 'permission'
   | 'strip' | 'live-head' | 'artifact' | 'qbanner' | 'diff'
   // CHG-014 Runtime-SSOT P2: subagent 子流块 (核心, 嵌套 inner blocks 经本 registry 同源渲染)。
   | 'agent'
+  // CHG-014 P3b: task-notification 系统事件块 (核心, 后台任务/agent 完成的紧凑通知卡)。
+  | 'task-notification'
 
 // CHG-014 S8 F4: 保留 core kind 清单（文档化策略）。这些 type 是 @ce 基座保留字，
 // 由 registerCore 占用、不可被 registerExtension override（existing.core 守卫会拒绝）。
@@ -13,7 +15,7 @@ type BlockKind = 'text' | 'thinking' | 'tool-group' | 'task-plan' | 'permission'
 // 不得复用这些名字。已核对 pro registerOdBlocks.ts 无冲突。
 export const RESERVED_CORE_KINDS = [
   'text', 'thinking', 'tool-group', 'task-plan', 'permission', 'waiting', 'error', 'usage',
-  'strip', 'live-head', 'artifact', 'qbanner', 'diff', 'agent',
+  'strip', 'live-head', 'artifact', 'qbanner', 'diff', 'agent', 'task-notification',
 ] as const
 
 interface BlockRegistryEntry {
@@ -76,6 +78,8 @@ import QBanner from './blocks/QBanner.vue'
 import DiffBlock from './blocks/DiffBlock.vue'
 // CHG-014 Runtime-SSOT P2: subagent 子流块
 import AgentBlock from './blocks/AgentBlock.vue'
+// CHG-014 P3b: task-notification 系统事件块
+import TaskNotificationBlock from './blocks/TaskNotificationBlock.vue'
 
 blockRegistry.registerCore('text', TextBlock)
 blockRegistry.registerCore('thinking', ThinkingBlock)
@@ -94,3 +98,5 @@ blockRegistry.registerCore('qbanner', QBanner)
 blockRegistry.registerCore('diff', DiffBlock)
 // CHG-014 Runtime-SSOT P2: subagent 子流 (Task/Agent tool_use → 嵌套子流, 不卷收)
 blockRegistry.registerCore('agent', AgentBlock)
+// CHG-014 P3b: task-notification (后台任务/agent 完成 → 紧凑系统事件卡, 非满宽气泡)
+blockRegistry.registerCore('task-notification', TaskNotificationBlock)

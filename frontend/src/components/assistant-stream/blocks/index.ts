@@ -15,3 +15,5 @@ export { default as DiffBlock } from './DiffBlock.vue'
 export { default as UserBubble } from './UserBubble.vue'
 // CHG-014 Runtime-SSOT P2: subagent 子流块
 export { default as AgentBlock } from './AgentBlock.vue'
+// CHG-014 P3b: task-notification 系统事件块
+export { default as TaskNotificationBlock } from './TaskNotificationBlock.vue'

@@ -9,6 +9,16 @@
 // 滚动联动: 装配方监听滚动后更新 rounds[].current / meta.current → 本组件被动渲染。
 import { computed, onUnmounted, ref } from 'vue'
 import type { AssistantRoundItem, AssistantTimelineMeta } from '../types'
+import RoundAvatar from './RoundAvatar.vue'
+
+// P4 (Gap-5): 每轮发起者头像/作者名 (AI/Human 区分)。装配方喂 r.role/r.author;
+// 缺省时按 role 兜底显示, role 也缺则不渲染头像 (无死 UI, 向后兼容老 rounds 数据)。
+function hasAvatar(r: AssistantRoundItem): boolean {
+  return !!(r.role || r.author)
+}
+function authorName(r: AssistantRoundItem): string {
+  return r.author?.name || (r.role === 'human' ? '我' : r.role === 'ai' ? 'AI' : '')
+}
 
 const props = withDefaults(defineProps<{
   density?: 'hover' | 'persistent'
@@ -104,8 +114,23 @@ onUnmounted(() => { dragging.value = false })
     >
       <i />
       <span class="v6-rp">
+        <!-- P4 (Gap-5): 浮窗头部 = 头像 + 作者名 + #N (对标 v6:1552/1702)。
+             role/author 缺则降级为原 #N + 标题 (向后兼容)。 -->
+        <span v-if="hasAvatar(r)" class="v6-rp-head">
+          <RoundAvatar
+            class="v6-rp-av"
+            size="sm"
+            :role="r.role"
+            :avatar-key="r.author?.avatarKey"
+            :avatar-url="r.author?.avatarUrl"
+            :initial="r.author?.initial"
+            :name="authorName(r)"
+          />
+          <b v-if="authorName(r)" class="v6-rp-author">{{ authorName(r) }}</b>
+          <span class="v6-rndchip v6-rp-num">#{{ r.index }}</span>
+        </span>
         <span class="v6-rpn">
-          <span class="v6-rndchip">#{{ r.index }}</span>
+          <span v-if="!hasAvatar(r)" class="v6-rndchip">#{{ r.index }}</span>
           <span class="v6-rpt">{{ r.title }}</span>
         </span>
         <span class="v6-rpm">
@@ -133,9 +158,26 @@ onUnmounted(() => { dragging.value = false })
         :aria-current="r.current ? 'true' : undefined"
         @click="emit('goto', r.index)"
       >
+        <!-- P4 (Gap-5): topic 楼层浮窗 = 发帖人头像 + 作者名 + #N + 首行 (v6:1702 范式)。
+             role/author 缺则降级为 #N + 标题 (向后兼容老数据)。 -->
         <span class="v6-tkp">
-          <span class="v6-rndchip">#{{ r.index }}</span>
-          <span class="v6-tkp-t">{{ r.title }}</span>
+          <span v-if="hasAvatar(r)" class="v6-tkp-head">
+            <RoundAvatar
+              size="sm"
+              :role="r.role"
+              :avatar-key="r.author?.avatarKey"
+              :avatar-url="r.author?.avatarUrl"
+              :initial="r.author?.initial"
+              :name="authorName(r)"
+            />
+            <b v-if="authorName(r)" class="v6-tkp-author">{{ authorName(r) }}</b>
+            <span class="v6-rndchip v6-tkp-num">#{{ r.index }}</span>
+            <span class="v6-tkp-t">{{ r.title }}</span>
+          </span>
+          <template v-else>
+            <span class="v6-rndchip">#{{ r.index }}</span>
+            <span class="v6-tkp-t">{{ r.title }}</span>
+          </template>
         </span>
       </button>
       <!-- F6 拖拽手柄: pointer-capture + role=slider + 键盘步进。 -->
@@ -225,6 +267,22 @@ onUnmounted(() => { dragging.value = false })
 }
 .v6-rn:hover .v6-rp,
 .v6-rn:focus-visible .v6-rp { display: block; }
+/* P4 (Gap-5): hover 浮窗头部 — 头像 + 作者名 + #N (右对齐), 在标题行之上。 */
+.v6-rp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.v6-rp-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dw-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v6-rp-num { margin-left: auto; }
 .v6-rpn {
   display: flex;
   align-items: center;
@@ -374,6 +432,25 @@ onUnmounted(() => { dragging.value = false })
 }
 .v6-tk2:hover .v6-tkp,
 .v6-tk2:focus-visible .v6-tkp { display: inline-flex; }
+/* P4 (Gap-5): 含头像的楼层浮窗 — 头部 (头像+作者+#N) 一行, 首行标题换行其下。 */
+.v6-tkp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.v6-tkp-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dw-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v6-tkp-num { margin-left: auto; }
+/* 首行标题: 含头像时占满整行 (在头部之下), 否则维持 inline 行内省略。 */
+.v6-tkp-head .v6-tkp-t { flex: 1 0 100%; }
 .v6-tkp-t {
   flex: 1;
   min-width: 0;
