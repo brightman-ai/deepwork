@@ -139,7 +139,9 @@ export function applyAssistantWorkstreamEvent(
       if (current) {
         current.streaming = false
         current.elapsed_ms = elapsedFrom(event, options)
-        current.blocks = removeWaitingBlocks(current.blocks ?? [])
+        const blocks = removeWaitingBlocks(current.blocks ?? [])
+        settleThinking(blocks) // turn done → any lingering thinking block collapses
+        current.blocks = blocks
         current.usage = usageFrom(event)
         current.live_usage = current.usage
       }
@@ -206,10 +208,26 @@ function appendText(message: AssistantMessage, content: string): void {
   if (last?.type === 'text') {
     blocks[blocks.length - 1] = { type: 'text', content: last.content + content }
   } else {
+    // Text begins → the model has moved past thinking; mark any live thinking block
+    // done so the surface auto-collapses it (live thinking 展开 → 收起转场). UX: the
+    // user watches thinking stream, then it folds as the answer starts.
+    settleThinking(blocks)
     blocks.push({ type: 'text', content })
   }
   message.blocks = blocks
   message.content = (message.content || '') + content
+}
+
+// settleThinking flips every still-streaming thinking block to done in place, so the
+// ThinkingBlock surface collapses it (open follows block.streaming). Called when text
+// starts and on done — the two honest "thinking finished" transitions.
+function settleThinking(blocks: AssistantBlock[]): void {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (b.type === 'thinking' && (b as Extract<AssistantBlock, { type: 'thinking' }>).streaming) {
+      blocks[i] = { ...(b as Extract<AssistantBlock, { type: 'thinking' }>), streaming: false }
+    }
+  }
 }
 
 function appendThinking(

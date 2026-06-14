@@ -14,7 +14,15 @@ const props = defineProps<{
   streaming?: boolean
 }>()
 
-const open = ref(false)
+// 流式 thinking 默认展开（逐字可见的 live 思考），思考结束（block.streaming=false，由
+// reducer 在 text 开始 / done 时翻转）自动折叠为 chip+预览（转录整洁）。用户点击 = 显式
+// pin，覆盖自动默认。这是「过程 thinking 有效呈现」的关键修复：此前 ref(false) 默认折叠，
+// 流式思考内容藏在折叠体里，用户只看到状态空转 → 误判「无流式」。
+const manual = ref<boolean | null>(null)
+const open = computed<boolean>(() => (manual.value !== null ? manual.value : !!props.block.streaming))
+function toggle(): void {
+  manual.value = !open.value
+}
 // F8 a11y: aria-controls 需指向 body 唯一 id（折叠头 ↔ 内容关联）。模块级自增计数。
 const bodyId = `as-think-body-${++thinkSeq}`
 
@@ -40,9 +48,9 @@ const preview = computed(() => {
       class="v6-bh"
       :aria-expanded="open"
       :aria-controls="bodyId"
-      @click="open = !open"
+      @click="toggle"
     >
-      <span class="v6-chip v6-chip--think">{{ props.streaming ? '思考中' : 'Thinking' }}</span>
+      <span class="v6-chip v6-chip--think">{{ props.block.streaming ? '思考中' : 'Thinking' }}</span>
       <span class="v6-bprev">{{ preview }}</span>
       <small v-if="props.block.runtime?.model" class="v6-bh__model">{{ props.block.runtime.model }}</small>
       <small v-if="props.block.startedAt" class="v6-bh__tm">{{ elapsedFrom(props.block.startedAt) }}</small>
