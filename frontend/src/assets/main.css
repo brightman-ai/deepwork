@@ -50,6 +50,24 @@ html, body, #app {
   overflow: hidden;
 }
 
+/* iOS standalone PWA safe-area (SSOT — single shell-root inset).
+   With viewport-fit=cover the app paints edge-to-edge UNDER the status bar /
+   notch, so the topmost chrome (terminal tab row, tmux pane bar, portal rail)
+   is occluded by the clock/battery and un-tappable. Reserving the top inset on
+   the ONE shell-root element ([data-testid="main-layout"], the SidebarProvider
+   that both the terminal and pro render) pushes ALL top chrome below the status
+   bar exactly once — no per-component hacks. box-sizing:border-box keeps the
+   pinned viewport height correct (padding is absorbed into the fixed height,
+   not added to it). In a normal browser tab env(safe-area-inset-*) resolves to
+   0, so this is a no-op there. Bottom inset is owned by the individual toolbars
+   (CliTerminalSurface / ResourceDrawer / sheets) and is untouched here. */
+[data-testid="main-layout"].dw-app-viewport-frame {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
 /* iOS Safari: prevent bounce-scroll that displaces position:fixed elements.
    overscroll-behavior: none is the modern standard (Chrome 63+, Safari 16+).
    touch-action: manipulation on html/body blocks accidental double-tap zoom on iOS Safari.

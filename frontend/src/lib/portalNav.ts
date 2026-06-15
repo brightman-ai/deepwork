@@ -123,7 +123,10 @@ export const utilityNavItems: PortalNavItem[] = [
   {
     name: "settings",
     label: "Settings",
-    path: "/settings",
+    // Navigate to the registered portal route (consistent with every other nav
+    // item, which use /portal/*). The host routers also keep a /settings →
+    // /portal/settings redirect, so legacy links still resolve.
+    path: "/portal/settings",
     portal: null,
     icon: Settings,
     description: "Provider and runtime settings",
@@ -217,7 +220,7 @@ export function isPortalRouteActive(currentPath: string, item: PortalNavItem): b
     return currentPath.startsWith("/portal/browser") || currentPath.startsWith("/browser-sidebar");
   }
   if (item.name === "settings") {
-    return currentPath.startsWith("/settings");
+    return currentPath.startsWith("/portal/settings") || currentPath.startsWith("/settings");
   }
   if (item.name === "open-design") {
     return currentPath.startsWith("/portal/od") || currentPath.startsWith("/open-design");
