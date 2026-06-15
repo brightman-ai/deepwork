@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, type ComponentPublicInstance } from "vue";
 import { useRoute } from "vue-router";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@ce/components/ui/sidebar";
 import NavigationSidebar from "@ce/components/NavigationSidebar.vue";
+import { useEdgeDrag } from "@ce/composables/useEdgeDrag";
 
 const route = useRoute();
 const containedScroll = computed(() => route.meta.scrollMode === "contained");
+
+// The mobile portal-nav trigger is a fixed left-edge affordance; make it vertically
+// draggable (same behaviour as the terminal's ResourceDrawer handle) so it can be moved
+// off whatever it covers. A short tap still toggles the sidebar; a drag repositions +
+// persists. SSOT: reuses @ce/composables/useEdgeDrag (no duplicated drag logic).
+const { el: triggerEl, style: triggerStyle } = useEdgeDrag({ storageKey: "dw.portalNav.top" });
+// SidebarTrigger is a component, so a plain ref yields its instance — resolve the root
+// DOM node ($el) for the composable, which needs a real HTMLElement.
+function setTriggerEl(elOrInstance: Element | ComponentPublicInstance | null) {
+  const node =
+    elOrInstance instanceof Element
+      ? elOrInstance
+      : ((elOrInstance?.$el as HTMLElement | undefined) ?? null);
+  triggerEl.value = node instanceof HTMLElement ? node : null;
+}
 onMounted(() => {
   const isDesktop = !!(window as any).__wails || !!(window as any).wails;
   if (isDesktop) {
@@ -42,9 +58,11 @@ function toggleWindowMaximise(event: MouseEvent) {
   <SidebarProvider class="dw-app-viewport-frame min-h-0 overflow-hidden" data-testid="main-layout">
     <NavigationSidebar />
     <SidebarTrigger
+      :ref="setTriggerEl"
       class="mobile-portal-trigger"
       aria-label="打开 Portal 导航"
       data-testid="mobile-portal-nav-trigger"
+      :style="triggerStyle"
     />
     <SidebarInset class="main-layout__inset dw-app-viewport-frame min-h-0 overflow-hidden" @dblclick="toggleWindowMaximise">
       <main
@@ -105,6 +123,8 @@ function toggleWindowMaximise(event: MouseEvent) {
     color: hsl(var(--foreground));
     box-shadow: 0 10px 30px hsl(var(--foreground) / 0.12);
     backdrop-filter: blur(12px);
+    /* Own the vertical drag (useEdgeDrag); don't let the page scroll-hijack the gesture. */
+    touch-action: none;
   }
 }
 </style>
