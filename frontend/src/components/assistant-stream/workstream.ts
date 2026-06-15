@@ -99,13 +99,13 @@ export function applyAssistantWorkstreamEvent(
     case 'tool_start':
     case 'skill_start': {
       const msg = ensureAssistantMessage(current, options)
-      appendTool(msg, normalizeToolEvent(event, event.kind === 'skill_start' ? 'Skill' : 'Tool', options))
+      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_start' ? 'Skill' : 'Tool', options))
       return msg
     }
     case 'tool_result':
     case 'skill_result': {
       const msg = ensureAssistantMessage(current, options)
-      updateToolResult(msg, normalizeToolEvent(event, event.kind === 'skill_result' ? 'Skill' : 'Tool', options))
+      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_result' ? 'Skill' : 'Tool', options))
       return msg
     }
     case 'usage': {
@@ -142,7 +142,11 @@ export function applyAssistantWorkstreamEvent(
         const blocks = removeWaitingBlocks(current.blocks ?? [])
         settleThinking(blocks) // turn done → any lingering thinking block collapses
         current.blocks = blocks
-        current.usage = usageFrom(event)
+        // Merge, don't overwrite: the Done frame carries the authoritative ttft (and
+        // duration), but token/cache figures accrued from the per-round `usage` events.
+        // A plain assign would let Done's absent fields blank out cache_read/tokens
+        // (→ footer「—」). mergeUsage keeps each field's last real value.
+        current.usage = mergeUsage(current.live_usage, usageFrom(event))
         current.live_usage = current.usage
       }
       return current
@@ -250,23 +254,15 @@ function appendBlock(message: AssistantMessage, block: AssistantBlock): void {
   message.blocks = [...removeWaitingBlocks(message.blocks ?? []), block]
 }
 
-function appendTool(message: AssistantMessage, tool?: AssistantToolEvent): void {
-  if (!tool) return
-  const blocks = removeWaitingBlocks([...(message.blocks ?? [])])
-  let groupIndex = blocks.findIndex(block => block.type === 'tool-group')
-  if (groupIndex < 0) {
-    blocks.push({ type: 'tool-group', tools: [] })
-    groupIndex = blocks.length - 1
-  }
-  const group = blocks[groupIndex] as Extract<AssistantBlock, { type: 'tool-group' }>
-  blocks[groupIndex] = {
-    type: 'tool-group',
-    tools: [...group.tools, tool],
-  }
-  message.blocks = blocks
-}
-
-function updateToolResult(message: AssistantMessage, tool?: AssistantToolEvent): void {
+// upsertTool merges one tool lifecycle event into the message BY TOOL ID. A single
+// tool surfaces as SEVERAL same-id events — early start (name, args still
+// streaming), completed start (full args), result (output) — which must converge on
+// ONE tool-group entry instead of duplicating. Fields merge non-destructively
+// (mergeToolEvent): an incoming undefined never clobbers a value already captured,
+// so a result event (which carries no input) preserves the start's arguments. A tool
+// id not yet present is appended to the current tool-group (created if none). One
+// function for the whole tool lifecycle — tool_start AND tool_result both call it.
+function upsertTool(message: AssistantMessage, tool?: AssistantToolEvent): void {
   if (!tool) return
   const blocks = removeWaitingBlocks([...(message.blocks ?? [])])
   for (let i = 0; i < blocks.length; i += 1) {
@@ -278,13 +274,34 @@ function updateToolResult(message: AssistantMessage, tool?: AssistantToolEvent):
     const toolIndex = toolGroup.tools.findIndex(item => item.id === tool.id)
     if (toolIndex < 0) continue
     const tools = [...toolGroup.tools]
-    tools[toolIndex] = { ...tools[toolIndex], ...tool }
+    tools[toolIndex] = mergeToolEvent(tools[toolIndex], tool)
     blocks[i] = { type: 'tool-group', tools }
     message.blocks = blocks
     return
   }
+  // First sighting of this tool id → append to the last tool-group (create if none).
+  let groupIndex = blocks.findIndex(block => block.type === 'tool-group')
+  if (groupIndex < 0) {
+    blocks.push({ type: 'tool-group', tools: [] })
+    groupIndex = blocks.length - 1
+  }
+  const group = blocks[groupIndex] as Extract<AssistantBlock, { type: 'tool-group' }>
+  blocks[groupIndex] = { type: 'tool-group', tools: [...group.tools, tool] }
   message.blocks = blocks
-  appendTool(message, tool)
+}
+
+// mergeToolEvent folds a later same-id event onto the earlier one. A nullish
+// incoming field (e.g. the absent input on a result event) leaves the prior value
+// intact — never erasing arguments captured at start.
+function mergeToolEvent(prev: AssistantToolEvent, next: AssistantToolEvent): AssistantToolEvent {
+  return {
+    id: prev.id,
+    name: next.name ?? prev.name,
+    input: next.input ?? prev.input,
+    output: next.output ?? prev.output,
+    is_error: next.is_error ?? prev.is_error,
+    duration_ms: next.duration_ms ?? prev.duration_ms,
+  }
 }
 
 function replaceTaskPlan(message: AssistantMessage, tasks: AssistantTaskItem[]): void {
@@ -329,6 +346,24 @@ function usageFrom(event: AssistantWorkstreamEvent): AssistantUsageInfo {
     cache_read_tokens: numberFrom(
       event.done?.cache_read_tokens ?? event.usage?.cache_read_tokens ?? event.meta?.cache_read_tokens,
     ),
+  }
+}
+
+// mergeUsage folds a later usage snapshot onto an earlier one WITHOUT letting an
+// absent (undefined) incoming field erase a value already captured — so the Done
+// frame (authoritative ttft/duration, but no per-round token/cache figures) enriches
+// rather than blanks the figures accrued from the streaming `usage` events.
+function mergeUsage(prev?: AssistantUsageInfo, next?: AssistantUsageInfo): AssistantUsageInfo | undefined {
+  if (!prev) return next
+  if (!next) return prev
+  return {
+    input_tokens: next.input_tokens ?? prev.input_tokens,
+    thinking_tokens: next.thinking_tokens ?? prev.thinking_tokens,
+    output_tokens: next.output_tokens ?? prev.output_tokens,
+    cost_usd: next.cost_usd ?? prev.cost_usd,
+    estimated: next.estimated || prev.estimated,
+    ttft_ms: next.ttft_ms ?? prev.ttft_ms,
+    cache_read_tokens: next.cache_read_tokens ?? prev.cache_read_tokens,
   }
 }
 

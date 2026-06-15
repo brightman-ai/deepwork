@@ -105,6 +105,10 @@ defineExpose({
   color: var(--dw-fg);
   outline: none;
   font-family: inherit;
+  /* OD3: auto-grow — 无溢出不显滚条，超过 max-height(~8行)才出现；gutter stable 防止
+     出现/消失时文字横向跳动。JS onInput 同步设置 height = min(scrollHeight, 180)。 */
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .v6-cmp-in::placeholder { color: var(--dw-mu); }
 .v6-cmp-bar {

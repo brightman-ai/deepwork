@@ -50,14 +50,18 @@ const preview = computed(() => {
       :aria-controls="bodyId"
       @click="toggle"
     >
-      <span class="v6-chip v6-chip--think">{{ props.block.streaming ? '思考中' : 'Thinking' }}</span>
+      <span
+        class="v6-chip v6-chip--think"
+        :class="{ 'v6-chip--live': props.block.streaming }"
+      >{{ props.block.streaming ? '思考中' : 'Thinking' }}</span>
       <span class="v6-bprev">{{ preview }}</span>
       <small v-if="props.block.runtime?.model" class="v6-bh__model">{{ props.block.runtime.model }}</small>
       <small v-if="props.block.startedAt" class="v6-bh__tm">{{ elapsedFrom(props.block.startedAt) }}</small>
       <span class="v6-bchev">▶</span>
     </button>
     <div v-if="open" :id="bodyId" class="v6-bb">
-      <pre>{{ props.block.content }}</pre>
+      <pre>{{ props.block.content
+        }}<span v-if="props.block.streaming" class="v6-think-caret" aria-hidden="true" /></pre>
     </div>
   </div>
 </template>
@@ -104,6 +108,34 @@ const preview = computed(() => {
   color: var(--dw-ac);
   background: var(--dw-ac-dim);
   font-size: 9px;
+}
+/* WS1: 流式思考时 chip 呼吸 — 表明「正在思考」有生命力。 */
+.v6-chip--live {
+  animation: v6-think-breathe 1.4s ease-in-out infinite;
+}
+@keyframes v6-think-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+/* WS1: 逐 token 追加末尾打字态光标。Vue 对 block.content 的 delta 增量已自动重渲染
+   <pre>，此光标提供「正在写入」视觉锚点。 */
+.v6-think-caret {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--dw-ac);
+  border-radius: 1px;
+  animation: v6-think-caret-blink 1s steps(2, start) infinite;
+}
+@keyframes v6-think-caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v6-chip--live { animation: none; }
+  .v6-think-caret { animation: none; opacity: 0.7; }
 }
 .v6-bprev {
   font-size: 11px;
