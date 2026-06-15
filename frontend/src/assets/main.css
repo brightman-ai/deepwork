@@ -68,6 +68,23 @@ html, body, #app {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* The shell-root padding-top (above) reserves the iOS notch via box-sizing:border-box,
+   so the root's CONTENT box is (viewport − top-inset) tall. But .dw-app-viewport-frame
+   ALSO hard-pins height to the full --dw-app-viewport-height !important, and the inner
+   SidebarInset (.main-layout__inset) carries that class too — so it re-asserts the FULL
+   viewport height while sitting below the padded top, overflowing the bottom by exactly
+   the top-inset amount. That pushes the inset's bottom chrome (CliTerminalSurface's
+   tmux quick row + key Toolbar + ComposeBar) past the visible viewport, occluding the
+   ComposeBar's input row + send button on notched devices / PWA standalone.
+   Fix (SSOT, both standalone + pro — both render MainLayout's SidebarInset with these
+   classes): the inner inset fills its parent's CONTENT box (height:100%) instead of
+   re-pinning to the full viewport var, so the top inset shrinks the usable area exactly
+   once and nothing overflows the bottom. No-op in a normal tab (top inset → 0). */
+.main-layout__inset.dw-app-viewport-frame {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
 /* iOS Safari: prevent bounce-scroll that displaces position:fixed elements.
    overscroll-behavior: none is the modern standard (Chrome 63+, Safari 16+).
    touch-action: manipulation on html/body blocks accidental double-tap zoom on iOS Safari.
