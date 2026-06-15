@@ -1,5 +1,5 @@
 import type { SessionStrategy } from '../types'
-import type { AssistantBlock, AssistantMessage, AssistantToolEvent } from '@ce/components/assistant-stream/types'
+import type { AssistantBlock, AssistantMessage, AssistantToolEvent, AssistantUsageInfo } from '@ce/components/assistant-stream/types'
 import { createTrace, tracedFetch, createLogger } from '@ce/utils/obs'
 import type { Ref } from 'vue'
 
@@ -26,6 +26,13 @@ interface HistoryTurn {
   /** CHG-015: accumulated thinking/reasoning text persisted per turn.
    *  Restored as a static thinking block on history load (F5). */
   reasoning?: string
+  /** CHG-014 D5① per-round persisted metric columns (turns.*). Restored into the
+   *  message's usage on history load so the completed-state footer shows the SAME
+   *  ttft/tokens/cache the live stream did — instead of「—」. null/缺失 → undefined. */
+  ttft_ms?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  cache_read_tokens?: number | null
 }
 
 export interface DefaultSessionStrategyOptions {
@@ -129,15 +136,38 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
   }
   // A turn with ONLY reasoning still renders (blocks now holds a thinking block).
   if (!blocks.length && !turn.ai_output) return null
+  // CHG-014 D5① — restore the completed-state footer usage from the persisted
+  // per-round columns (turns.ttft_ms / *_tokens). Without this, a history-rebuilt
+  // message carries no usage → the footer shows ttft/tokens/cache as「—」even though
+  // the value WAS captured and persisted (the live stream showed it, but a session
+  // (re)load replaces the live message with this one). 仅填实际存在的列 → footer 诚实
+  // 显「—」for genuinely absent columns, never fabricated 0.
+  const usage = historyUsage(turn)
   return {
     id: `a-${turnNo}`,
     role: 'assistant',
     content: String(turn.ai_output ?? ''),
     blocks,
     elapsed_ms: Number(turn.duration_ms ?? 0),
+    ...(usage ? { usage } : {}),
     status: turn.status === 'failed' ? 'failed' : 'normal',
     error: turn.error,
   }
+}
+
+// 历史 turn → footer usage。仅挂实际存在的持久化列；null/undefined 列省略 (footer 显
+// 「—」)，全缺则返回 undefined（不挂空 usage）。与 OverviewPanel 同源 (turns.*)。
+function historyUsage(turn: HistoryTurn): AssistantUsageInfo | undefined {
+  const pick = (v: number | null | undefined): number | undefined =>
+    (v === null || v === undefined) ? undefined : v
+  const usage: AssistantUsageInfo = {
+    ttft_ms: pick(turn.ttft_ms),
+    input_tokens: pick(turn.input_tokens),
+    output_tokens: pick(turn.output_tokens),
+    cache_read_tokens: pick(turn.cache_read_tokens),
+  }
+  const hasAny = Object.values(usage).some((v) => v !== undefined)
+  return hasAny ? usage : undefined
 }
 
 function resolveValue<T>(v: T | (() => T)): T {
