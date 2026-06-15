@@ -23,6 +23,9 @@ interface HistoryTurn {
   status?: string
   error?: string
   steps?: HistoryStep[]
+  /** CHG-015: accumulated thinking/reasoning text persisted per turn.
+   *  Restored as a static thinking block on history load (F5). */
+  reasoning?: string
 }
 
 export interface DefaultSessionStrategyOptions {
@@ -57,6 +60,19 @@ export interface DefaultSessionStrategyOptions {
    * Memory flag forwarded to the input-events endpoint.
    */
   memoryOn?: (() => boolean | undefined) | boolean
+  /**
+   * CHG-015: chat AI role id forwarded to the input-events endpoint.
+   * OPTIONAL — ws/topic/claw adapters that don't pass it ⇒ undefined ⇒ omitted.
+   */
+  roleId?: (() => string) | string
+  /**
+   * CHG-015: reasoning effort tier ("low"|"medium"|"high") forwarded to input-events.
+   */
+  effort?: (() => string) | string
+  /**
+   * CHG-015: vision-assist model id (used when the chosen model lacks vision).
+   */
+  visionAssistModelId?: (() => string) | string
   /**
    * Called when a session was created (new) or continued.
    */
@@ -99,12 +115,19 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
   if (tools.length) {
     blocks.push({ type: 'tool-group', tools })
   }
+  // CHG-015: thinking precedes prose. Restore a static thinking block from the
+  // accumulated reasoning text (only `type`+`content` needed for history). Mirrors
+  // the OD pattern in mapOdMessages.ts.
+  if (turn.reasoning) {
+    blocks.push({ type: 'thinking', content: String(turn.reasoning) })
+  }
   if (turn.ai_output) {
     blocks.push({ type: 'text', content: String(turn.ai_output) })
   }
   if (turn.error) {
     blocks.push({ type: 'error', message: String(turn.error) })
   }
+  // A turn with ONLY reasoning still renders (blocks now holds a thinking block).
   if (!blocks.length && !turn.ai_output) return null
   return {
     id: `a-${turnNo}`,
@@ -133,6 +156,9 @@ export class DefaultSessionStrategy implements SessionStrategy {
   private get toolMode() { return resolveValue(this.opts.toolMode) ?? '' }
   private get allowedTools() { return resolveValue(this.opts.allowedTools) ?? [] }
   private get memoryOn() { return resolveValue(this.opts.memoryOn) }
+  private get roleId() { return resolveValue(this.opts.roleId) ?? '' }
+  private get effort() { return resolveValue(this.opts.effort) ?? '' }
+  private get visionAssistModelId() { return resolveValue(this.opts.visionAssistModelId) ?? '' }
 
   async ensureSession(): Promise<number> {
     const { sessionIdRef, activeRef, onSessionCreated } = this.opts
@@ -180,6 +206,9 @@ export class DefaultSessionStrategy implements SessionStrategy {
     const toolMode = this.toolMode
     const allowedTools = this.allowedTools
     const memoryOn = this.memoryOn
+    const roleId = this.roleId
+    const effort = this.effort
+    const visionAssistModelId = this.visionAssistModelId
     return {
       url: `/api/sessions/${sessionId}/input-events`,
       body: {
@@ -187,6 +216,10 @@ export class DefaultSessionStrategy implements SessionStrategy {
         tool_mode: toolMode || undefined,
         allowed_tools: allowedTools.length ? allowedTools : undefined,
         memory_on: memoryOn,
+        // CHG-015: chat selectors — omitted when empty so ws/topic/claw are unaffected.
+        role_id: roleId || undefined,
+        effort: effort || undefined,
+        vision_assist_model_id: visionAssistModelId || undefined,
       },
     }
   }

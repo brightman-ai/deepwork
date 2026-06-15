@@ -112,6 +112,13 @@ onUnmounted(() => { dragging.value = false })
       :aria-current="r.current ? 'true' : undefined"
       @click="emit('goto', r.index)"
     >
+      <!-- CHG-015 9a: 内联短标签 — 之前右缘只有刻度 tick, 标题藏在 hover 浮窗
+           (display:none) → 用户「文字太少」。补一个常驻的极短标签层 (#N + 标题首段),
+           hover 仍展开完整浮窗。current 行加粗/高亮。 -->
+      <span class="v6-rn-lbl" :title="r.title">
+        <span class="v6-rn-lbl-n">#{{ r.index }}</span>
+        <span class="v6-rn-lbl-t">{{ r.title }}</span>
+      </span>
       <i />
       <span class="v6-rp">
         <!-- P4 (Gap-5): 浮窗头部 = 头像 + 作者名 + #N (对标 v6:1552/1702)。
@@ -240,6 +247,34 @@ onUnmounted(() => { dragging.value = false })
   outline-offset: 2px;
   border-radius: 3px;
 }
+/* 9a: 常驻内联短标签 (刻度左侧)。窄而省略 — 给「这一轮讲了什么」一个最小可读锚,
+   不抢内容区宽度; hover 仍弹完整 v6-rp 浮窗。 */
+.v6-rn-lbl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 116px;
+  margin-right: 5px;
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: var(--dw-mu);
+  opacity: 0.7;
+  transition: opacity 0.12s, color 0.12s;
+}
+.v6-rn:hover .v6-rn-lbl { opacity: 1; color: var(--dw-fg); }
+.v6-rn.cur .v6-rn-lbl { opacity: 1; color: var(--dw-fg); font-weight: 600; }
+.v6-rn-lbl-n {
+  font-family: var(--dw-mono);
+  font-size: 8.5px;
+  color: var(--dw-ac);
+  flex-shrink: 0;
+}
+.v6-rn-lbl-t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .v6-rn i {
   width: 11px;
   height: 2.5px;
@@ -247,6 +282,7 @@ onUnmounted(() => { dragging.value = false })
   background: var(--dw-mu);
   opacity: 0.35;
   transition: width 0.12s, opacity 0.12s;
+  flex-shrink: 0;
 }
 .v6-rn:hover i { opacity: 0.95; width: 15px; }
 .v6-rn.cur i { background: var(--dw-ac); opacity: 1; width: 17px; height: 3px; }

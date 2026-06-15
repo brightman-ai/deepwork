@@ -56,6 +56,7 @@
         class="as-message"
         :class="[`as-message--${message.role}`, { 'as-message--failed': message.status === 'failed' }]"
         :data-testid="`assistant-message-${message.role}`"
+        :data-round="message.role === 'user' ? userRoundOf(index) : undefined"
       >
         <div v-if="message.role !== 'user'" class="as-message__avatar" aria-hidden="true">
           {{ message.role === 'system' ? '!' : 'AI' }}
