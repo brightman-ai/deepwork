@@ -81,6 +81,12 @@ export interface DefaultSessionStrategyOptions {
    */
   visionAssistModelId?: (() => string) | string
   /**
+   * CHG-015 需求8: image attachments (data:image/...;base64 URL or http URL) sent
+   * with this turn. OPTIONAL — adapters that don't pass it ⇒ [] ⇒ omitted, so
+   * ws/topic/claw are unaffected. The backend routes a vision turn when present.
+   */
+  images?: (() => string[]) | string[]
+  /**
    * Called when a session was created (new) or continued.
    */
   onSessionCreated?: (sessionId: number) => void
@@ -189,6 +195,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
   private get roleId() { return resolveValue(this.opts.roleId) ?? '' }
   private get effort() { return resolveValue(this.opts.effort) ?? '' }
   private get visionAssistModelId() { return resolveValue(this.opts.visionAssistModelId) ?? '' }
+  private get images() { return resolveValue(this.opts.images) ?? [] }
 
   async ensureSession(): Promise<number> {
     const { sessionIdRef, activeRef, onSessionCreated } = this.opts
@@ -239,6 +246,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
     const roleId = this.roleId
     const effort = this.effort
     const visionAssistModelId = this.visionAssistModelId
+    const images = this.images
     return {
       url: `/api/sessions/${sessionId}/input-events`,
       body: {
@@ -250,6 +258,8 @@ export class DefaultSessionStrategy implements SessionStrategy {
         role_id: roleId || undefined,
         effort: effort || undefined,
         vision_assist_model_id: visionAssistModelId || undefined,
+        // CHG-015 需求8: image attachments — omitted when empty (ws/topic/claw send none).
+        images: images.length ? images : undefined,
       },
     }
   }
