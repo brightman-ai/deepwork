@@ -103,7 +103,13 @@ onMounted(async () => {
 function handleNavigate() {
   emit("navigate");
   if (isMobile.value) {
-    setOpenMobile(false);
+    // Defer the Sheet close to AFTER this click's event dispatch. The nav items are
+    // <router-link>s; closing the radix Sheet synchronously here tears the link out of the
+    // DOM within the same click, which on iOS Safari swallows WebKit's default navigation —
+    // the tap registers but the page never changes (a Chromium/headless build navigates fine,
+    // so this only bites on a real device). setTimeout(0) lets the router-link navigate first,
+    // then closes the drawer. Covers same-route taps too (where a route watcher wouldn't fire).
+    setTimeout(() => setOpenMobile(false), 0);
   }
 }
 </script>
@@ -114,7 +120,7 @@ function handleNavigate() {
     <SheetContent side="left" class="w-auto border-0 bg-transparent p-0 [&>button]:hidden">
       <!-- Accessible dialog name for screen readers (radix/reka requires one). -->
       <SheetTitle class="sr-only">导航</SheetTitle>
-      <nav class="dw-rail" data-od-id="rail" data-testid="navigation-sidebar">
+      <nav class="dw-rail dw-rail--sheet" data-od-id="rail" data-testid="navigation-sidebar">
         <router-link
           to="/"
           class="dw-rail-logo"
@@ -288,4 +294,17 @@ function handleNavigate() {
 .dw-rail-gap {
   flex: 1;
 }
+
+/* Mobile sheet variant: the rail is full-height but the bottom edge sits behind iOS Safari's
+   home-indicator / bottom chrome, so a bottom-pinned Settings gear is occluded (the user "can't
+   see Settings"). In the sheet, DON'T push Settings to the bottom — let it follow the portal
+   icons directly so it is always visible — and pad the bottom past the safe-area for good measure. */
+.dw-rail--sheet {
+  height: 100%;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.dw-rail--sheet::-webkit-scrollbar { display: none; }
+.dw-rail--sheet .dw-rail-gap { flex: 0 0 8px; }
 </style>
