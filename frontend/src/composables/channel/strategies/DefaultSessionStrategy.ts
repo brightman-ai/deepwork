@@ -118,6 +118,9 @@ function historyTools(steps: HistoryStep[]): AssistantToolEvent[] {
       output: step.output,
       is_error: step.status === 'error' || step.status === 'failed',
       duration_ms: Number(step.duration_ms ?? 0),
+      // CHG-015 P8: history tools are terminal (the turn completed) — mark done so the
+      // F5-rebuilt view never shows a spinner even when the persisted output is empty.
+      done: true,
     }))
 }
 

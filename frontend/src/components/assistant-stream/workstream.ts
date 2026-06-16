@@ -88,7 +88,7 @@ export function applyAssistantWorkstreamEvent(
       return current
     case 'text': {
       const msg = ensureAssistantMessage(current, options)
-      appendText(msg, event.content || '')
+      appendText(msg, event.content || '', options)
       return msg
     }
     case 'thinking': {
@@ -99,13 +99,16 @@ export function applyAssistantWorkstreamEvent(
     case 'tool_start':
     case 'skill_start': {
       const msg = ensureAssistantMessage(current, options)
-      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_start' ? 'Skill' : 'Tool', options))
+      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_start' ? 'Skill' : 'Tool', options, false))
       return msg
     }
     case 'tool_result':
     case 'skill_result': {
       const msg = ensureAssistantMessage(current, options)
-      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_result' ? 'Skill' : 'Tool', options))
+      // CHG-015 P8: a result frame means the tool COMPLETED — stamp done=true so the
+      // spinner stops even when the backend omits an empty `output` (omitempty). Keying
+      // termination off output presence left empty-success tools spinning forever.
+      upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_result' ? 'Skill' : 'Tool', options, true))
       return msg
     }
     case 'usage': {
@@ -140,7 +143,7 @@ export function applyAssistantWorkstreamEvent(
         current.streaming = false
         current.elapsed_ms = elapsedFrom(event, options)
         const blocks = removeWaitingBlocks(current.blocks ?? [])
-        settleThinking(blocks) // turn done → any lingering thinking block collapses
+        settleThinking(blocks, options.now) // turn done → any lingering thinking block collapses + freezes
         current.blocks = blocks
         // Merge, don't overwrite: the Done frame carries the authoritative ttft (and
         // duration), but token/cache figures accrued from the per-round `usage` events.
@@ -205,7 +208,11 @@ function updateWaitingStatus(message: AssistantMessage, status: string, startedA
   message.blocks = blocks
 }
 
-function appendText(message: AssistantMessage, content: string): void {
+function appendText(
+  message: AssistantMessage,
+  content: string,
+  options: AssistantWorkstreamApplyOptions,
+): void {
   if (!content) return
   const blocks = removeWaitingBlocks([...(message.blocks ?? [])])
   const last = blocks[blocks.length - 1]
@@ -214,8 +221,9 @@ function appendText(message: AssistantMessage, content: string): void {
   } else {
     // Text begins → the model has moved past thinking; mark any live thinking block
     // done so the surface auto-collapses it (live thinking 展开 → 收起转场). UX: the
-    // user watches thinking stream, then it folds as the answer starts.
-    settleThinking(blocks)
+    // user watches thinking stream, then it folds as the answer starts. P3a: this is
+    // also where thinking duration freezes (settleThinking stamps endedAt=now).
+    settleThinking(blocks, options.now)
     blocks.push({ type: 'text', content })
   }
   message.blocks = blocks
@@ -225,11 +233,15 @@ function appendText(message: AssistantMessage, content: string): void {
 // settleThinking flips every still-streaming thinking block to done in place, so the
 // ThinkingBlock surface collapses it (open follows block.streaming). Called when text
 // starts and on done — the two honest "thinking finished" transitions.
-function settleThinking(blocks: AssistantBlock[]): void {
+// CHG-015 P3a: also FREEZE the duration by stamping endedAt = now at settle time. The
+// displayed thinking time then equals endedAt-startedAt (same 口径 as backend total),
+// stops ticking, and can never exceed the round's total (含等待空转 was the old bug).
+function settleThinking(blocks: AssistantBlock[], now?: () => number): void {
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]
-    if (b.type === 'thinking' && (b as Extract<AssistantBlock, { type: 'thinking' }>).streaming) {
-      blocks[i] = { ...(b as Extract<AssistantBlock, { type: 'thinking' }>), streaming: false }
+    const tb = b as Extract<AssistantBlock, { type: 'thinking' }>
+    if (b.type === 'thinking' && tb.streaming) {
+      blocks[i] = { ...tb, streaming: false, endedAt: tb.endedAt ?? (now?.() ?? Date.now()) }
     }
   }
 }
@@ -301,6 +313,9 @@ function mergeToolEvent(prev: AssistantToolEvent, next: AssistantToolEvent): Ass
     output: next.output ?? prev.output,
     is_error: next.is_error ?? prev.is_error,
     duration_ms: next.duration_ms ?? prev.duration_ms,
+    // P8: once done (a result event arrived), stay done — a stray late start must
+    // never re-open a settled tool's spinner.
+    done: next.done || prev.done || undefined,
   }
 }
 
@@ -319,6 +334,7 @@ function normalizeToolEvent(
   event: AssistantWorkstreamEvent,
   prefix: 'Tool' | 'Skill',
   options: AssistantWorkstreamApplyOptions,
+  done: boolean,
 ): AssistantToolEvent | undefined {
   const raw = event.tool ?? event.skill
   const name = raw?.name || event.name || String(event.meta?.tool || prefix)
@@ -330,6 +346,9 @@ function normalizeToolEvent(
     output: raw?.output ?? event.output,
     is_error: raw?.is_error ?? Boolean(event.error),
     duration_ms: raw?.duration_ms,
+    // CHG-015 P8: result frames carry done=true. mergeToolEvent ORs it so a later
+    // result settles a tool whose start had done=false (undefined ?? prev keeps it).
+    done: done || undefined,
   }
 }
 

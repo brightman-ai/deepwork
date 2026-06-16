@@ -6,7 +6,7 @@ let thinkSeq = 0
 <script setup lang="ts">
 // CHG-014 D2: 重塑到原型 sbl.think 质感 (chip ch-think + bprev + 卷收)。
 // 原型行 1090 / CSS .chip.ch-think + .bprev + .sbl 卷收 (open class)。
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AssistantBlock } from '../types'
 
 const props = defineProps<{
@@ -26,9 +26,30 @@ function toggle(): void {
 // F8 a11y: aria-controls 需指向 body 唯一 id（折叠头 ↔ 内容关联）。模块级自增计数。
 const bodyId = `as-think-body-${++thinkSeq}`
 
-function elapsedFrom(startedAt: number): string {
-  return `${((Date.now() - startedAt) / 1000).toFixed(1)}s`
-}
+// CHG-015 P3a: 思考耗时显示。优先用「冻结时长」= endedAt-startedAt（reducer 在思考结束
+// 即 text 开始 / turn done 时戳 endedAt），与后端 total elapsed 同口径（块时长，不含等待空转）
+// → 流结束后不再增长、永不大于 total。仅当仍在流式且未冻结时退化为 wall-clock（真在跳动）。
+const thinkElapsed = computed<string | null>(() => {
+  const b = props.block
+  if (b.startedAt === undefined) return null
+  const end = b.endedAt ?? (b.streaming ? nowTick.value : undefined)
+  if (end === undefined) return null
+  return `${(Math.max(0, end - b.startedAt) / 1000).toFixed(1)}s`
+})
+
+// 流式期间每 200ms 推进一次 wall-clock（仅未冻结时有意义）。冻结后 endedAt 固定 → computed
+// 不再依赖 nowTick 变化亦稳定。组件卸载清理定时器。
+const nowTick = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  if (props.block.streaming && props.block.endedAt === undefined) {
+    timer = setInterval(() => { nowTick.value = Date.now() }, 200)
+  }
+})
+watch(() => props.block.streaming, (s) => {
+  if (!s && timer) { clearInterval(timer); timer = null }
+})
+onUnmounted(() => { if (timer) clearInterval(timer) })
 
 // 折叠时的单行预览 (首行/截断)
 const preview = computed(() => {
@@ -56,7 +77,7 @@ const preview = computed(() => {
       >{{ props.block.streaming ? '思考中' : 'Thinking' }}</span>
       <span class="v6-bprev">{{ preview }}</span>
       <small v-if="props.block.runtime?.model" class="v6-bh__model">{{ props.block.runtime.model }}</small>
-      <small v-if="props.block.startedAt" class="v6-bh__tm">{{ elapsedFrom(props.block.startedAt) }}</small>
+      <small v-if="thinkElapsed" class="v6-bh__tm">{{ thinkElapsed }}</small>
       <span class="v6-bchev">▶</span>
     </button>
     <div v-if="open" :id="bodyId" class="v6-bb">

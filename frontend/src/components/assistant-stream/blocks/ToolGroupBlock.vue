@@ -69,8 +69,12 @@ function toolPath(tool: AssistantToolEvent, family: ToolFamily): string {
 
 function toolState(tool: AssistantToolEvent): 'error' | 'running' | 'done' {
   if (tool.is_error) return 'error'
-  if (tool.output === undefined) return 'running'
-  return 'done'
+  // CHG-015 P8: a tool is done when its result frame arrived (tool.done) — NOT merely
+  // when output text exists. The backend omits empty `output` (omitempty), so keying
+  // off output presence kept empty-success tools spinning forever. `output` defined
+  // still implies done (history / legacy frames that carry output but no done flag).
+  if (tool.done || tool.output !== undefined) return 'done'
+  return 'running'
 }
 
 // 头部摘要: N 个文件 · M 条命令 (按 family 聚类)
@@ -86,7 +90,10 @@ function headSummary(): string {
   return parts.join(' · ')
 }
 
-const running = () => props.block.tools.some(t => t.output === undefined && !t.is_error)
+// CHG-015 P8: group spins while ANY tool is still running — i.e. not yet settled by a
+// result frame (tool.done) AND no output AND not errored. Mirrors toolState's done test
+// so the header spinner stops the instant the last tool's result lands.
+const running = () => props.block.tools.some(t => !t.done && t.output === undefined && !t.is_error)
 </script>
 
 <template>

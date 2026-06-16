@@ -28,9 +28,16 @@ function elapsedFrom(startedAt: number): string {
 const usage = computed<AssistantUsageInfo | undefined>(() => props.message.live_usage ?? props.message.usage)
 
 // 缺数据 → 「—」哨兵。运行时可得的 TTFT 带 △ 软标。
+// CHG-015 P3c: ≥1000 折算为「6.0k」风格（mono footer 紧凑可读），<1000 原样整数。
 function num(value?: number): string {
   if (value === undefined || value < 0) return '—'
-  return Math.round(value).toLocaleString()
+  const v = Math.round(value)
+  if (v >= 1000) {
+    const k = v / 1000
+    // 10k 以上不留小数（28.0k→28k 太长无益），1k–10k 留一位（6.0k）。
+    return k >= 10 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`
+  }
+  return String(v)
 }
 
 const ttft = computed(() => {
@@ -44,14 +51,25 @@ const elapsed = computed(() => {
   return '—'
 })
 
+// CHG-015 P3c: in/out token 行，k 折算。格式「↓28 / ↑6.0k」(/thinking 若有再补一段)。
+// 全缺 → 「—」(保栅格)。thinking 仅在源字段存在时追加 (claude reasoning token 才有)。
 const tokensIO = computed(() => {
   const i = usage.value?.input_tokens
   const o = usage.value?.output_tokens
-  if (i === undefined && o === undefined) return '—'
-  return `↓${num(i)} ↑${num(o)}`
+  const th = usage.value?.thinking_tokens
+  if (i === undefined && o === undefined && th === undefined) return '—'
+  const parts = [`↓${num(i)}`, `↑${num(o)}`]
+  if (th !== undefined && th >= 0) parts.push(`✻${num(th)}`)
+  return parts.join(' / ')
 })
 
-const cacheRead = computed(() => num(usage.value?.cache_read_tokens))
+// CHG-015 P5c: 缓存读为空时不渲染该项（只在 WorkArea 总览显）。footer 仅当确有正值才显。
+const cacheReadValue = computed(() => usage.value?.cache_read_tokens)
+const hasCacheRead = computed(() => {
+  const v = cacheReadValue.value
+  return v !== undefined && v > 0
+})
+const cacheRead = computed(() => num(cacheReadValue.value))
 const model = computed(() => props.message.runtime?.model || '—')
 const clock = computed(() => {
   const ts = props.message.started_at_ms
@@ -66,7 +84,7 @@ const clock = computed(() => {
       <span title="TTFT 仅运行时可得">TTFT {{ ttft }}<i class="v6-rmeta__vol">△</i></span>
       <span>总耗时 {{ elapsed }}</span>
       <span>{{ tokensIO }}</span>
-      <span>缓存读 {{ cacheRead }}</span>
+      <span v-if="hasCacheRead">缓存读 {{ cacheRead }}</span>
       <span>{{ model }}</span>
       <span>{{ clock }}</span>
     </span>

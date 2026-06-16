@@ -57,10 +57,15 @@ const handleRef = ref<HTMLElement | null>(null)
 const dragging = ref(false)
 
 function ratioFromY(clientY: number): number {
-  if (!scrollRef.value) return 0
-  const rect = scrollRef.value.getBoundingClientRect()
-  if (rect.height === 0) return 0
-  return Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
+  const el = scrollRef.value
+  if (!el) return 0
+  const rect = el.getBoundingClientRect()
+  // CHG-015 P16: 轨道 3px 宽 + flex:1, 某些布局下 getBoundingClientRect().height 可能瞬时
+  // 为 0 (父高未结算 / transform 中) → 旧实现直接 return 0 使 seek 永远跳到顶 (ratio 恒 0)。
+  // 退化时回落到 offsetHeight (CSS min-height:120px 保证非 0), 仍 0 才放弃。
+  const height = rect.height || el.offsetHeight
+  if (!height) return 0
+  return Math.max(0, Math.min(1, (clientY - rect.top) / height))
 }
 
 function onPointerDown(ev: PointerEvent): void {
@@ -383,6 +388,9 @@ onUnmounted(() => { dragging.value = false })
 }
 .v6-tline-hd {
   position: absolute;
+  /* CHG-015 P16: 可视旋钮仍窄 (13px), 但命中区放大到 28px 宽 / 多 8px 上下,
+     用透明 ::before 扩张 (不改旋钮观感)。z-index 抬到刻度 (v6-tk2) 之上, 否则
+     刻度 button 截走 pointerdown → 拖不动。 */
   left: -5px;
   width: 13px;
   height: 34px;
@@ -392,6 +400,17 @@ onUnmounted(() => { dragging.value = false })
   cursor: grab;
   transform: translateY(-50%);
   touch-action: none;  /* F6: 让 pointer 拖拽吃掉触摸手势，不滚页面 */
+  z-index: 3;
+}
+/* P16: 透明命中区扩张 — 比旋钮各向外扩 (左右各 ~7px, 上下各 8px), 让窄手柄好抓。
+   ::before 继承 pointer 事件, pointerdown 落在它上即触发拖拽 (它是 hd 的一部分)。 */
+.v6-tline-hd::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: -8px;
+  right: -8px;
 }
 .v6-tline-hd.dragging { cursor: grabbing; }
 .v6-tline-hd:focus-visible {

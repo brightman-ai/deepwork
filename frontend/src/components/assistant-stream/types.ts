@@ -32,6 +32,12 @@ export interface AssistantToolEvent {
   output?: string
   is_error?: boolean
   duration_ms?: number
+  // CHG-015 P8: tool lifecycle terminal flag. A `tool_result` frame means the tool
+  // COMPLETED even when its textual output is empty/absent (backend omits empty
+  // `output` via omitempty). Spinner termination must key off this, NOT `output`
+  // presence — otherwise an empty-success tool spins forever. Set by the workstream
+  // reducer on tool_result/skill_result and by history rebuild (always done).
+  done?: boolean
 }
 
 export interface AssistantTaskItem {
@@ -160,7 +166,11 @@ export interface AssistantTaskNotificationBlock {
 export type AssistantBlock =
   | { type: 'text'; content: string }
   | { type: 'waiting'; status: string; startedAt?: number }
-  | { type: 'thinking'; content: string; startedAt?: number; streaming?: boolean; runtime?: AssistantRuntimeInfo; usage?: AssistantUsageInfo }
+  // CHG-015 P3a: `endedAt` freezes the thinking duration at settle time (text starts
+  // or turn done). Display elapsed = endedAt-startedAt (same 口径 as backend total),
+  // never live wall-clock — otherwise thinking time keeps growing past total and
+  // exceeds it (含等待空转). Absent endedAt + streaming → live wall-clock (still ticking).
+  | { type: 'thinking'; content: string; startedAt?: number; endedAt?: number; streaming?: boolean; runtime?: AssistantRuntimeInfo; usage?: AssistantUsageInfo }
   | { type: 'tool-group'; tools: AssistantToolEvent[] }
   | { type: 'task-plan'; tasks: AssistantTaskItem[] }
   | AssistantPermissionBlock
