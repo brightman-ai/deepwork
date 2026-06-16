@@ -1,0 +1,59 @@
+/* Shared settings-section chrome (SSOT). Loaded ONCE globally by PortalSectionHost, so every
+   section — whether owned by @ce, terminal, or pro — gets identical System/Network panel styling
+   without per-section CSS duplication. Classes are `.ssec-*` namespaced to stay collision-free as
+   plain (un-scoped) global classes. */
+
+.ssec-body { padding: 16px; }
+
+.ssec-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  padding-bottom: 8px;
+  border-bottom: 1px solid hsl(var(--border));
+  margin-bottom: 10px;
+}
+
+.ssec-block { margin-bottom: 20px; }
+
+.ssec-loading { font-size: 12px; color: hsl(var(--muted-foreground)); padding: 4px 0; }
+
+.ssec-hint {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 4px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.ssec-hint code { font-family: monospace; background: hsl(var(--muted)); padding: 0 3px; border-radius: 3px; }
+
+.ssec-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.ssec-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+}
+.ssec-card-label { font-size: 10px; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.05em; }
+.ssec-card-value { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
+.ssec-mono { font-family: monospace; font-size: 12px; }
+
+.ssec-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+.ssec-copy-btn:hover { background: hsl(var(--muted) / 0.6); color: hsl(var(--foreground)); }
+.ssec-copy-btn--done { color: hsl(140 50% 40%); border-color: hsl(140 50% 40% / 0.4); }
