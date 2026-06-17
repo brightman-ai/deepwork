@@ -13,7 +13,7 @@
 import { computed, ref } from 'vue'
 import { Activity, Clock, MessageSquare, Cpu, Hash, Snowflake, Copy, Check } from 'lucide-vue-next'
 import { createTrace, createLogger } from '@ce/utils/obs'
-import type { SessionDetail, TurnsSummary, Turn } from '@ce/types/sessionMetrics'
+import type { SessionDetail, TurnsSummary, Turn, UnitPrice } from '@ce/types/sessionMetrics'
 
 interface Props {
   /** 会话详情 (状态/模型/turn_count/ended_at)。null → 空态。 */
@@ -22,6 +22,8 @@ interface Props {
   summary?: TurnsSummary | null
   /** 逐轮 usage (TPS/TTFT 派生 + summary 缺失时的退回聚合源)。 */
   turns?: Turn[]
+  /** 当前模型标定单价 (per-MTok)。null/未知模型 →「标定价格」行显「—」(诚实)。 */
+  price?: UnitPrice | null
   /** 加载态 (host 拉取中)。 */
   loading?: boolean
   /** 工作目录 (可选; 给则渲染「工作目录」行 + 复制钮)。 */
@@ -32,6 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
   detail: null,
   summary: null,
   turns: () => [],
+  price: null,
   loading: false,
   rootDir: null,
 })
@@ -155,6 +158,8 @@ const startedAt = computed<string | null>(() => summary.value?.started_at ?? nul
 // 费用 = summary.total_cost (后端按价表派生; 无价/无 model → null →「—」, 绝不蒙)。
 const totalCost = computed<number | null>(() => summary.value?.total_cost ?? null)
 const costCurrency = computed<string>(() => summary.value?.currency ?? '')
+// 标定价格 = 当前模型的 per-MTok 单价 (后端 kit/pricing SSOT)。未知模型 → null →「—」。
+const unitPrice = computed<UnitPrice | null>(() => props.price ?? null)
 const ttftLatest = computed<number | null>(() => {
   for (let i = turns.value.length - 1; i >= 0; i--) {
     const v = turns.value[i].ttft_ms
@@ -240,6 +245,17 @@ function fmtCost(n: number | null, currency: string): string {
   if (n === null) return '—'
   const sym = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : ''
   return `${sym}${n.toFixed(n < 1 ? 4 : 2)}`
+}
+// 标定价格 → 一行 per-MTok 单价: `IN $5 · OUT $25 · 写 $6.25 · 读 $0.5 /M`。
+// 无价对象 →「—」。无 cache-create 档 (写=0, 如 OpenAI/Gemini) → 省略「写」段 (诚实)。
+function fmtUnitPrice(p: UnitPrice | null): string {
+  if (!p) return '—'
+  const sym = p.currency === 'CNY' ? '¥' : p.currency === 'USD' ? '$' : ''
+  const num = (v: number): string => `${sym}${Number(v.toFixed(4))}`
+  const segs = [`IN ${num(p.input)}`, `OUT ${num(p.output)}`]
+  if (p.cache_create > 0) segs.push(`写 ${num(p.cache_create)}`)
+  segs.push(`读 ${num(p.cache_read)}`)
+  return `${segs.join(' · ')} /M`
 }
 function fmtStarted(iso: string | null): string {
   if (!iso) return '—'
@@ -364,6 +380,10 @@ async function copyRootDir(): Promise<void> {
         <div class="ov-row">
           <span class="ov-key">费用</span>
           <span class="font-mono text-xs" data-testid="overview-cost">{{ fmtCost(totalCost, costCurrency) }}</span>
+        </div>
+        <div class="ov-row">
+          <span class="ov-key">标定价格</span>
+          <span class="font-mono text-[11px] text-muted-foreground truncate max-w-[68%]" data-testid="overview-unit-price" :title="fmtUnitPrice(unitPrice)">{{ fmtUnitPrice(unitPrice) }}</span>
         </div>
         <div class="ov-row">
           <span class="ov-key">模型调用</span>

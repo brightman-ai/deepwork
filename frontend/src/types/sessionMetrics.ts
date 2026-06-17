@@ -63,6 +63,21 @@ export interface TurnsSummary {
 }
 
 /**
+ * Reference UNIT price of the current session model, in currency per MILLION
+ * tokens (the endpoint's top-level `price` segment, looked up from the kit/pricing
+ * SSOT). `cache_create` is 0 for providers without a cache-write tier (OpenAI,
+ * Gemini). The whole object is omitted/null when the model is unknown to the price
+ * table → the pane renders「—」(honest), never a fabricated 0.
+ */
+export interface UnitPrice {
+  input: number
+  output: number
+  cache_create: number
+  cache_read: number
+  currency: string
+}
+
+/**
  * Session detail (the endpoint's `detail` segment). `id` is `string | number`:
  * terminal session ids are uuids, pro's are numeric — both are valid.
  */
@@ -83,4 +98,6 @@ export interface SessionMetricsBag {
   detail: SessionDetail | null
   summary: TurnsSummary | null
   turns?: Turn[]
+  /** 当前模型标定单价 (per-MTok)。无价/未知模型 → null/omit →「—」(诚实)。 */
+  price?: UnitPrice | null
 }
