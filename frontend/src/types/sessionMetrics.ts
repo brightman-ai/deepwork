@@ -65,16 +65,19 @@ export interface TurnsSummary {
 /**
  * Reference UNIT price of the current session model, in currency per MILLION
  * tokens (the endpoint's top-level `price` segment, looked up from the kit/pricing
- * SSOT). `cache_create` is 0 for providers without a cache-write tier (OpenAI,
- * Gemini). The whole object is omitted/null when the model is unknown to the price
- * table → the pane renders「—」(honest), never a fabricated 0.
+ * SSOT base Tier). `cache_write_5m` / `cache_write_1h` are 0 for providers without a
+ * cache-write tier (OpenAI, Gemini). `context_threshold` is the long-context premium
+ * boundary in tokens (0/omitted = none). The whole object is omitted/null when the
+ * model is unknown to the price table → the pane renders「—」(honest), never a 0.
  */
 export interface UnitPrice {
   input: number
   output: number
-  cache_create: number
   cache_read: number
+  cache_write_5m: number
+  cache_write_1h: number
   currency: string
+  context_threshold?: number
 }
 
 /**

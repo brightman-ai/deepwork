@@ -246,14 +246,15 @@ function fmtCost(n: number | null, currency: string): string {
   const sym = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : ''
   return `${sym}${n.toFixed(n < 1 ? 4 : 2)}`
 }
-// 标定价格 → 一行 per-MTok 单价: `IN $5 · OUT $25 · 写 $6.25 · 读 $0.5 /M`。
-// 无价对象 →「—」。无 cache-create 档 (写=0, 如 OpenAI/Gemini) → 省略「写」段 (诚实)。
+// 标定价格 → 一行 per-MTok 单价: `IN $5 · OUT $25 · 写5m $6.25 · 写1h $10 · 读 $0.5 /M`。
+// 无价对象 →「—」。无 cache-write 档 (写5m=写1h=0, 如 OpenAI/Gemini) → 省略「写*」段 (诚实)。
 function fmtUnitPrice(p: UnitPrice | null): string {
   if (!p) return '—'
   const sym = p.currency === 'CNY' ? '¥' : p.currency === 'USD' ? '$' : ''
   const num = (v: number): string => `${sym}${Number(v.toFixed(4))}`
   const segs = [`IN ${num(p.input)}`, `OUT ${num(p.output)}`]
-  if (p.cache_create > 0) segs.push(`写 ${num(p.cache_create)}`)
+  if (p.cache_write_5m > 0) segs.push(`写5m ${num(p.cache_write_5m)}`)
+  if (p.cache_write_1h > 0) segs.push(`写1h ${num(p.cache_write_1h)}`)
   segs.push(`读 ${num(p.cache_read)}`)
   return `${segs.join(' · ')} /M`
 }
