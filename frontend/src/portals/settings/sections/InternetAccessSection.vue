@@ -8,25 +8,27 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Globe, ClipboardCopy } from 'lucide-vue-next'
-import { settingsApiFetch } from '@ce/framework/portal'
+import { useTunnel } from '@ce/composables/useTunnel'
 
+// Tunnel lifecycle (start → download → poll → ready) lives in the shared useTunnel SSOT; this
+// section is now a thin view over it. The composable returns refs; wrapping them in reactive()
+// deep-unwraps them so the existing template (`tunnel.running`, `tunnel.totalBytes`, …) and the
+// computeds below keep reading plain values — zero template/behavior change.
+const _tunnel = useTunnel()
 const tunnel = reactive({
-  running: false,
-  starting: false,
-  publicURL: '',
-  downloading: false,
-  downloadedBytes: 0,
-  totalBytes: -1,
-  downloadURL: '',
-  binPath: '',
+  running: _tunnel.running,
+  starting: _tunnel.starting,
+  publicURL: _tunnel.publicURL,
+  downloading: _tunnel.downloading,
+  downloadedBytes: _tunnel.downloadedBytes,
+  totalBytes: _tunnel.totalBytes,
+  downloadURL: _tunnel.downloadURL,
+  binPath: _tunnel.binPath,
 })
-const tunnelError = ref('')
-let pollInterval: ReturnType<typeof setInterval> | null = null
-let startDeadline: ReturnType<typeof setTimeout> | null = null
-
-let lastPollBytes = 0
-let lastPollTime = 0
-const downloadSpeedBps = ref(0)
+const tunnelError = _tunnel.error
+const downloadSpeedBps = _tunnel.downloadSpeedBps
+const startTunnel = _tunnel.start
+const stopTunnel = _tunnel.stop
 
 const copyTarget = ref('')
 async function copyText(text: string) {
@@ -37,95 +39,9 @@ async function copyText(text: string) {
   } catch { /* ignore */ }
 }
 
-onMounted(async () => {
-  // Reflect any already-running tunnel on entry.
-  try {
-    const res = await settingsApiFetch('/api/tunnel/status')
-    if (res.ok) applyStatus(await res.json())
-  } catch { /* ignore */ }
-})
-onUnmounted(stopPolling)
-
-function stopPolling() {
-  if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-  if (startDeadline) { clearTimeout(startDeadline); startDeadline = null }
-}
-
-function applyStatus(status: {
-  running: boolean; publicURL?: string; downloading?: boolean
-  downloadedBytes?: number; totalBytes?: number; downloadURL?: string; binPath?: string
-}) {
-  tunnel.running = status.running
-  tunnel.publicURL = status.publicURL ?? ''
-  tunnel.downloading = status.downloading ?? false
-  tunnel.downloadedBytes = status.downloadedBytes ?? 0
-  tunnel.totalBytes = status.totalBytes ?? -1
-  tunnel.downloadURL = status.downloadURL ?? ''
-  tunnel.binPath = status.binPath ?? ''
-}
-
-async function startTunnel() {
-  tunnel.starting = true
-  tunnelError.value = ''
-  try {
-    const resp = await settingsApiFetch('/api/tunnel/start', { method: 'POST' })
-    if (!resp.ok) { tunnelError.value = 'Failed to request tunnel start'; tunnel.starting = false; return }
-  } catch {
-    tunnelError.value = 'Network error — server unreachable'; tunnel.starting = false; return
-  }
-
-  lastPollBytes = 0
-  lastPollTime = Date.now()
-  downloadSpeedBps.value = 0
-
-  // Poll every second. Timeout applies ONLY to the post-download cloudflared start phase —
-  // the download itself can take minutes and never times out.
-  pollInterval = setInterval(async () => {
-    try {
-      const status = await settingsApiFetch('/api/tunnel/status').then(r => r.json())
-      applyStatus(status)
-
-      if (status.downloading) {
-        const now = Date.now()
-        const dt = (now - lastPollTime) / 1000
-        if (dt > 0) {
-          const instant = (status.downloadedBytes - lastPollBytes) / dt
-          downloadSpeedBps.value = downloadSpeedBps.value === 0 ? instant : 0.3 * instant + 0.7 * downloadSpeedBps.value
-        }
-        lastPollBytes = status.downloadedBytes
-        lastPollTime = now
-        if (startDeadline) { clearTimeout(startDeadline); startDeadline = null }
-        return
-      }
-
-      if (!status.running && !status.downloading) {
-        if (!startDeadline) {
-          startDeadline = setTimeout(() => {
-            if (!tunnel.running) {
-              stopPolling()
-              tunnel.starting = false
-              tunnelError.value = 'Timeout — cloudflared did not produce a URL in 90s. Check server logs.'
-            }
-          }, 90_000)
-        }
-        return
-      }
-
-      if (status.running) { stopPolling(); tunnel.starting = false; downloadSpeedBps.value = 0 }
-    } catch { /* transient poll errors */ }
-  }, 1000)
-}
-
-async function stopTunnel() {
-  stopPolling()
-  try { await settingsApiFetch('/api/tunnel/stop', { method: 'POST' }) } catch { /* ignore */ }
-  tunnel.running = false
-  tunnel.starting = false
-  tunnel.publicURL = ''
-  tunnel.downloading = false
-  tunnelError.value = ''
-  downloadSpeedBps.value = 0
-}
+// Reflect any already-running tunnel on entry; release poll timers on unmount.
+onMounted(() => { void _tunnel.refreshStatus() })
+onUnmounted(() => _tunnel.dispose())
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`
