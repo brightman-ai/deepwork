@@ -109,6 +109,16 @@ body {
   touch-action: pan-x pan-y;
 }
 
+/* Form fields must stay text-editable even under a user-select:none ancestor (the drawer
+   panel .rd-panel, toolbars, the compose bar all disable selection). iOS WebKit treats an
+   INHERITED user-select:none on an <input>/<textarea> as "not editable" and silently blocks
+   typing — setting it directly on the field overrides the inherited none and keeps every
+   field usable (desktop is unaffected; it never had the bug). */
+input, textarea, select, [contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ── Project Nebula Wave 1 Design Tokens ────────────────────────────────────── */
 /* NOTE: These variables are only referenced by _archive/CliPage.vue (archived).
    Retained here to avoid build errors from that file; remove when archive is deleted. */
