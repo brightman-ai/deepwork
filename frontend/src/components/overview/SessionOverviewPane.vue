@@ -382,9 +382,12 @@ async function copyRootDir(): Promise<void> {
           <span class="ov-key">费用</span>
           <span class="font-mono text-xs" data-testid="overview-cost">{{ fmtCost(totalCost, costCurrency) }}</span>
         </div>
-        <div class="ov-row">
+        <!-- 标定价格 has 5 per-MTok segments; on a narrow drawer they don't fit one line.
+             Stack the row (key on top) and let the value WRAP across the full width instead of
+             truncating — reads top-to-bottom, shows every segment, costs ~2 lines not 5. -->
+        <div class="ov-row ov-row--price">
           <span class="ov-key">标定价格</span>
-          <span class="font-mono text-[11px] text-muted-foreground truncate max-w-[68%]" data-testid="overview-unit-price" :title="fmtUnitPrice(unitPrice)">{{ fmtUnitPrice(unitPrice) }}</span>
+          <span class="ov-price font-mono text-[11px] text-muted-foreground" data-testid="overview-unit-price">{{ fmtUnitPrice(unitPrice) }}</span>
         </div>
         <div class="ov-row">
           <span class="ov-key">模型调用</span>
@@ -454,6 +457,9 @@ async function copyRootDir(): Promise<void> {
   border-bottom: 1px solid hsl(var(--border) / 0.4);
 }
 .ov-key { display: flex; align-items: center; gap: 6px; color: hsl(var(--muted-foreground)); }
+/* 标定价格行: 堆叠 — key 在上, 价格整行换行 (不截断, 显示全 5 段单价)。 */
+.ov-row--price { flex-direction: column; align-items: flex-start; gap: 3px; }
+.ov-row--price .ov-price { align-self: stretch; white-space: normal; word-break: break-word; line-height: 1.5; }
 /* 工作目录值 = 截断路径 + 复制钮。max-width 限 60% (与 model_id 行一致),
    min-width:0 让内部 truncate 生效。 */
 .ov-dir { display: flex; align-items: center; gap: 5px; max-width: 60%; min-width: 0; }
