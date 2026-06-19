@@ -14,6 +14,7 @@ import { computed, ref } from 'vue'
 import { Activity, Clock, MessageSquare, Cpu, Hash, Snowflake, Copy, Check } from 'lucide-vue-next'
 import { createTrace, createLogger } from '@ce/utils/obs'
 import type { SessionDetail, TurnsSummary, Turn, UnitPrice } from '@ce/types/sessionMetrics'
+import { copyTextToClipboard } from '@ce/utils/clipboard'
 
 interface Props {
   /** 会话详情 (状态/模型/turn_count/ended_at)。null → 空态。 */
@@ -270,19 +271,19 @@ const copiedDir = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
 async function copyRootDir(): Promise<void> {
   if (!props.rootDir) return
-  try {
-    await navigator.clipboard.writeText(props.rootDir)
+  // SSOT helper: iOS/HTTP-safe (navigator.clipboard is undefined on insecure origins).
+  if (await copyTextToClipboard(props.rootDir)) {
     copiedDir.value = true
     if (copyTimer) clearTimeout(copyTimer)
     copyTimer = setTimeout(() => { copiedDir.value = false }, 1500)
-  } catch (e) {
-    log.warn('copy rootDir failed', { error: String(e) }, createTrace('SessionOverviewPane/copy'))
+  } else {
+    log.warn('copy rootDir failed', {}, createTrace('SessionOverviewPane/copy'))
   }
 }
 </script>
 
 <template>
-  <div class="h-full overflow-auto p-4" data-testid="session-overview-pane">
+  <div class="h-full overflow-auto p-4 ov-selectable" data-testid="session-overview-pane">
     <!-- 无会话空态 (host 未喂入 detail) -->
     <div v-if="!hasSource" class="flex flex-col items-center justify-center h-full gap-3 text-center text-muted-foreground">
       <Activity class="size-10 opacity-30" />
@@ -475,4 +476,10 @@ async function copyRootDir(): Promise<void> {
   transition: color 0.12s, background 0.12s;
 }
 .ov-dir-copy:hover { color: var(--dw-fg); background: var(--dw-sf2); }
+/* 总览内容是只读、可复制的信息 (费用 / 模型 id / 路径)。抽屉 chrome 全局 user-select:none →
+   这里重新开启, 否则数值无法选中复制 (#3)。-webkit- 前缀供 iOS Safari。 */
+.ov-selectable, .ov-selectable :deep(*) {
+  -webkit-user-select: text;
+  user-select: text;
+}
 </style>

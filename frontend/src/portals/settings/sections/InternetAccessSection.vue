@@ -9,6 +9,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Globe, ClipboardCopy } from 'lucide-vue-next'
 import { useTunnel } from '@ce/composables/useTunnel'
+import { copyTextToClipboard } from '@ce/utils/clipboard'
 
 // Tunnel lifecycle (start → download → poll → ready) lives in the shared useTunnel SSOT; this
 // section is now a thin view over it. The composable returns refs; wrapping them in reactive()
@@ -32,11 +33,11 @@ const stopTunnel = _tunnel.stop
 
 const copyTarget = ref('')
 async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
+  // SSOT helper: iOS/HTTP-safe (navigator.clipboard is undefined on insecure origins).
+  if (await copyTextToClipboard(text)) {
     copyTarget.value = text
     setTimeout(() => { if (copyTarget.value === text) copyTarget.value = '' }, 2000)
-  } catch { /* ignore */ }
+  }
 }
 
 // Reflect any already-running tunnel on entry; release poll timers on unmount.
