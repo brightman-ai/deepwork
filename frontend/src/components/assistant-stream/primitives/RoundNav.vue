@@ -41,20 +41,26 @@ function fmtTok(n?: number): string {
   return String(n)
 }
 
-// persistent 手柄位置 (%)
+// CHG-018 拖拽对标 Discourse d-draggable / topic-timeline container.gjs:
+// 旧实现的两个致命缺陷 —
+//   (1) pointer 监听只挂在 13px 手柄上 → 点轨道其余位置/刻度无反应（"点不动"）；
+//   (2) 手柄 top 纯由 meta.current 派生（IntersectionObserver 驱动），拖拽时手柄不跟
+//       光标，要等滚动回报才动 → 体感"拖不动 / 跳回"。
+// 修复：把 pointer 链挂到整条轨道（scrollRef），pointerdown 即 setPointerCapture →
+// move/up 继续投递（拖出轨道不断）；拖拽过程维护本地 dragRatio 实时驱动手柄位置
+// （Discourse commit() 在 dragging 时只更新视觉），松手仍持续 emit('seek') 联动滚动。
+// 点轨道任意处 = 同一 ratioFromY → 立即 seek（对标 d-draggable 轨道点击）。
+const scrollRef = ref<HTMLElement | null>(null)
+const dragging = ref(false)
+const dragRatio = ref(0)
+
+// persistent 手柄位置 (%)：拖拽中跟随光标 (dragRatio)，否则跟随 meta.current。
 const handleTop = computed(() => {
+  if (dragging.value) return dragRatio.value * 100
   const m = props.meta
   if (!m || m.total <= 1) return 0
   return ((m.current - 1) / (m.total - 1)) * 100
 })
-
-// CHG-014 S8 F6: pointer-events 拖拽。原实现只在 3px 轨道内监听 mousemove/mouseup，
-// 鼠标一离开轨道即断拖，且无触摸支持。现用 pointer events + setPointerCapture：
-// 指针在手柄上按下后被「捕获」，move/up 事件继续投递到手柄（无视后续位置），
-// 因而拖出轨道也不断；pointer 事件统一覆盖鼠标/触摸/笔。onUnmounted 兜底清理。
-const scrollRef = ref<HTMLElement | null>(null)
-const handleRef = ref<HTMLElement | null>(null)
-const dragging = ref(false)
 
 function ratioFromY(clientY: number): number {
   const el = scrollRef.value
@@ -70,19 +76,21 @@ function ratioFromY(clientY: number): number {
 
 function onPointerDown(ev: PointerEvent): void {
   dragging.value = true
-  handleRef.value?.setPointerCapture(ev.pointerId)
-  emit('seek', ratioFromY(ev.clientY))
+  dragRatio.value = ratioFromY(ev.clientY)
+  scrollRef.value?.setPointerCapture(ev.pointerId)
+  emit('seek', dragRatio.value)
   ev.preventDefault()
 }
 function onPointerMove(ev: PointerEvent): void {
   if (!dragging.value) return
-  emit('seek', ratioFromY(ev.clientY))
+  dragRatio.value = ratioFromY(ev.clientY)
+  emit('seek', dragRatio.value)
 }
 function onPointerUp(ev: PointerEvent): void {
   if (!dragging.value) return
   dragging.value = false
-  if (handleRef.value?.hasPointerCapture(ev.pointerId)) {
-    handleRef.value.releasePointerCapture(ev.pointerId)
+  if (scrollRef.value?.hasPointerCapture(ev.pointerId)) {
+    scrollRef.value.releasePointerCapture(ev.pointerId)
   }
 }
 
@@ -155,7 +163,17 @@ onUnmounted(() => { dragging.value = false })
   <!-- persistent 密度: tline 时间线 -->
   <div v-else class="v6-tline" data-testid="v6-roundnav-persistent">
     <span v-if="meta?.startLabel" class="v6-td">{{ meta.startLabel }}</span>
-    <div ref="scrollRef" class="v6-tline-scroll">
+    <!-- CHG-018: pointer 链挂在整条轨道 — 点轨道任意处即 seek, 拖拽 setPointerCapture
+         全程跟手 (对标 Discourse d-draggable)。touch-action:none 让触摸拖拽不滚页面。 -->
+    <div
+      ref="scrollRef"
+      class="v6-tline-scroll"
+      :class="{ dragging }"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @pointercancel="onPointerUp"
+    >
       <!-- 每轮刻度: F7 原生 button + aria-label。
            CHG-014 R2(topic): 高体验 hover 密度 — hover/focus 显楼层#+作者+摘要浮窗 (v6-tkp)；
            visited (已读楼层) 刻度灰化。 -->
@@ -192,9 +210,10 @@ onUnmounted(() => { dragging.value = false })
           </template>
         </span>
       </button>
-      <!-- F6 拖拽手柄: pointer-capture + role=slider + 键盘步进。 -->
+      <!-- 拖拽手柄: 视觉旋钮 + role=slider + 键盘步进。CHG-018: pointer 拖拽由父轨道
+           统一处理 (手柄上的 pointerdown 冒泡到轨道即触发), 手柄自身只保留键盘可达性,
+           不再单独绑 pointer (消除"只有手柄能拖"的死区)。 -->
       <div
-        ref="handleRef"
         class="v6-tline-hd"
         :class="{ dragging }"
         :style="{ top: handleTop + '%' }"
@@ -204,10 +223,6 @@ onUnmounted(() => { dragging.value = false })
         :aria-valuemin="1"
         :aria-valuemax="meta?.total ?? 1"
         :aria-valuenow="meta?.current ?? 1"
-        @pointerdown="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-        @pointercancel="onPointerUp"
         @keydown="onHandleKey"
       />
       <div class="v6-tline-pos" :style="{ top: handleTop + '%' }">
@@ -385,6 +400,22 @@ onUnmounted(() => { dragging.value = false })
   flex: 1;
   min-height: 120px;
   margin: 8px 0 8px 5px;
+  /* CHG-018: 触摸拖拽不滚页面 + grab 光标提示整条可拖/可点。 */
+  touch-action: none;
+  cursor: pointer;
+}
+.v6-tline-scroll.dragging { cursor: grabbing; }
+/* CHG-018: 透明命中区横向扩张 (各 ~14px) — 视觉仍 3px 细轨, 但点/拖整条时间线列
+   任意位置都落在轨道上 (对标 Discourse 轨道点击即 seek)。刻度 button/手柄是其子元素,
+   pointerdown 冒泡到轨道即触发拖拽; 纯点击刻度仍走刻度自身的 goto。 */
+.v6-tline-scroll::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  right: -14px;
+  z-index: 0;
 }
 .v6-tline-hd {
   position: absolute;

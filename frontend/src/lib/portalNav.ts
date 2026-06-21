@@ -79,7 +79,7 @@ export const portalNavItems: PortalNavItem[] = [
   },
   {
     name: "planner",
-    label: "Requirement",
+    label: "需求工作台",
     path: "/planner",
     portal: "planner",
     icon: ClipboardList,

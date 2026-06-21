@@ -134,8 +134,15 @@
     </div>
 
     <div v-if="error" class="as-pane__error" data-testid="assistant-error">
-      <span>{{ error }}</span>
-      <button type="button" @click="emit('clear-error')">×</button>
+      <span class="as-pane__error-msg">{{ error }}</span>
+      <button
+        v-if="!streaming"
+        type="button"
+        class="as-pane__error-retry"
+        data-testid="assistant-error-retry"
+        @click="emit('retry')"
+      >重试</button>
+      <button type="button" class="as-pane__error-close" aria-label="关闭" @click="emit('clear-error')">×</button>
     </div>
 
     <footer v-if="!readonly" class="as-pane__composer">
@@ -284,6 +291,7 @@ export interface AssistantBlockAction {
 const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'clear-error'): void
+  (e: 'retry'): void
   (e: 'block-action', action: AssistantBlockAction): void
 }>()
 
@@ -807,12 +815,17 @@ function renderMarkdown(value: unknown): string {
 
 .as-pane__error {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   padding: 8px 12px;
   background: var(--dw-red-dim);
   color: var(--dw-red);
   border-top: 1px solid var(--dw-bd);
+}
+
+.as-pane__error-msg {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .as-pane__error button {
@@ -821,6 +834,27 @@ function renderMarkdown(value: unknown): string {
   color: inherit;
   cursor: pointer;
 }
+
+/* 重试 — a real affordance (not just dismiss). Bordered pill so it reads as the
+   primary recovery action; the × stays a quiet dismiss. */
+.as-pane__error-retry {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid currentColor !important;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.as-pane__error-retry:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.as-pane__error-close {
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.as-pane__error-close:hover { opacity: 1; }
 
 /* v6 composer (.cmp / .cmp-box): --sf strip, --sf2 inset box, amber focus ring,
    amber send button with on-accent glyph (single accent lock). */

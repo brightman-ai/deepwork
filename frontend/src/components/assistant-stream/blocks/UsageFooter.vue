@@ -2,7 +2,7 @@
 // CHG-014 D2: 重塑到原型 rmeta 轮次 footer (原型 1107)。
 // TTFT△ / 总耗时 / ↓in ↑out / 缓存读 / 模型 / 时间 + hover 动作钮 (⧉⟳⤴⑂)。
 // 数据 ← D5① turns。缺源字段一律显「—」(不省整行，保持栅格稳定)。
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AssistantMessage, AssistantUsageInfo } from '../types'
 
 const props = withDefaults(defineProps<{
@@ -14,6 +14,29 @@ const props = withDefaults(defineProps<{
   actionable: true,
 })
 
+// W1G3: 「总耗时」诚实走动。`Date.now()` is not reactive, so a plain computed froze the
+// streaming elapsed at the value captured on first render (the reported "总耗时 0.0s 全程
+// 冻结" during a long, low-event OD/WS turn). Tick a `now` ref every 500ms WHILE streaming
+// so the elapsed re-computes; stop the timer the moment streaming ends (the frozen
+// elapsed_ms then wins) to avoid a leaked interval. Mirrors WaitingBlock's live counter.
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+function stopTimer(): void {
+  if (timer) { clearInterval(timer); timer = null }
+}
+watch(
+  () => props.streaming && !!props.message.started_at_ms,
+  (live) => {
+    stopTimer()
+    if (live) {
+      now.value = Date.now()
+      timer = setInterval(() => { now.value = Date.now() }, 500)
+    }
+  },
+  { immediate: true },
+)
+onBeforeUnmount(stopTimer)
+
 const emit = defineEmits<{
   (e: 'copy'): void
   (e: 'retry'): void
@@ -22,7 +45,8 @@ const emit = defineEmits<{
 }>()
 
 function elapsedFrom(startedAt: number): string {
-  return `${((Date.now() - startedAt) / 1000).toFixed(1)}s`
+  // Use the ticking `now` ref (not Date.now()) so this re-computes while streaming.
+  return `${((now.value - startedAt) / 1000).toFixed(1)}s`
 }
 
 const usage = computed<AssistantUsageInfo | undefined>(() => props.message.live_usage ?? props.message.usage)

@@ -10,6 +10,7 @@
  * content on wide viewports, a sticky bottom tab strip on narrow ones.
  */
 import { computed, defineAsyncComponent, markRaw, ref, watch, type Component } from 'vue'
+import { useRoute } from 'vue-router'
 import { getPortalSections, type PortalSection } from '@ce/framework/portal'
 
 const props = defineProps<{
@@ -22,11 +23,18 @@ const props = defineProps<{
 // present before this mounts. Re-read when the slot changes.
 const sections = computed<PortalSection[]>(() => getPortalSections(props.slotId))
 
+const route = useRoute()
+
 const activeId = ref<string>('')
 watch(
   sections,
   (list) => {
-    if (!list.some((s) => s.id === activeId.value)) activeId.value = list[0]?.id ?? ''
+    if (list.some((s) => s.id === activeId.value)) return
+    // Deep-link: honor ?section=<id> when it names a registered section (e.g. the notify
+    // quick-sheet's "完整设置" jumps straight to terminal.notifications). Read only when
+    // resolving an initial/invalid selection, so a later tab click is never overridden.
+    const wanted = typeof route.query.section === 'string' ? route.query.section : ''
+    activeId.value = (wanted && list.some((s) => s.id === wanted)) ? wanted : (list[0]?.id ?? '')
   },
   { immediate: true },
 )

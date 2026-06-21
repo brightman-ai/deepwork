@@ -24,3 +24,6 @@ docs/
 .DS_Store
 .idea/
 .vscode/
+
+# the dev symlink build.sh creates (→ terminal/node_modules); not just the dir
+frontend/node_modules

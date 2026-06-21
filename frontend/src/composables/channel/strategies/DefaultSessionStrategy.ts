@@ -32,6 +32,8 @@ interface HistoryTurn {
   ttft_ms?: number | null
   input_tokens?: number | null
   output_tokens?: number | null
+  /** CHG-016: reasoning token 单列 (turns.thinking_tokens). null/缺失 → undefined. */
+  thinking_tokens?: number | null
   cache_read_tokens?: number | null
 }
 
@@ -76,6 +78,32 @@ export interface DefaultSessionStrategyOptions {
    * CHG-015: reasoning effort tier ("low"|"medium"|"high") forwarded to input-events.
    */
   effort?: (() => string) | string
+  /**
+   * W1 fix: per-turn outbound model id forwarded to input-events (`model`). This is the
+   * "切模型" signal — the backend reconciles it onto session.ModelID
+   * (applySessionModelEffortOverride) so the OUTBOUND model == the selected model even
+   * for a mid-session switch. OPTIONAL — adapters that don't pass it ⇒ '' ⇒ omitted, so
+   * the body is unchanged for callers that bake the model at create time only.
+   *
+   * Why this was missing: chat baked model_id at session create and was short-lived, so
+   * the create binding masked the gap. Workspace sessions are long-lived AND commonly
+   * leave the model on the runtime-default at create (model_id=''), so the picked model
+   * NEVER reached dispatch — selector/badge changed but outbound stayed the account
+   * default (W1: "选 GLM 自报 GPT-3.5"). Sending the resolved model per-turn closes both.
+   */
+  model?: (() => string) | string
+  /**
+   * 跨 provider 切模型 fix: per-turn provider account that BACKS `model`. session.
+   * ProviderAccountID is the SINGLE source the API gateway (providerForSession) resolves
+   * the outbound endpoint/key from — a bare per-turn `model` only changed the request
+   * `model` field while the endpoint stayed on the create-time account, so switching to a
+   * model on a DIFFERENT provider (deepseek-chat → glm-4-flash) sent the new model to the
+   * OLD provider's endpoint (400). Sending the resolved account per-turn lets the backend
+   * reconcile it onto session.ProviderAccountID so endpoint AND model move together.
+   * OPTIONAL — adapters that don't pass it (or that dispatch via CLI/subscription, whose
+   * account is legitimately empty) ⇒ '' ⇒ omitted ⇒ backend keeps the create binding.
+   */
+  providerAccountId?: (() => string) | string
   /**
    * CHG-015: vision-assist model id (used when the chosen model lacks vision).
    */
@@ -173,6 +201,9 @@ function historyUsage(turn: HistoryTurn): AssistantUsageInfo | undefined {
     ttft_ms: pick(turn.ttft_ms),
     input_tokens: pick(turn.input_tokens),
     output_tokens: pick(turn.output_tokens),
+    // CHG-016: thinking token 单列 — restored from turns.thinking_tokens so the
+    // history-rebuilt footer shows the SAME thinking token the live stream did.
+    thinking_tokens: pick(turn.thinking_tokens),
     cache_read_tokens: pick(turn.cache_read_tokens),
   }
   const hasAny = Object.values(usage).some((v) => v !== undefined)
@@ -197,6 +228,8 @@ export class DefaultSessionStrategy implements SessionStrategy {
   private get memoryOn() { return resolveValue(this.opts.memoryOn) }
   private get roleId() { return resolveValue(this.opts.roleId) ?? '' }
   private get effort() { return resolveValue(this.opts.effort) ?? '' }
+  private get model() { return resolveValue(this.opts.model) ?? '' }
+  private get providerAccountId() { return resolveValue(this.opts.providerAccountId) ?? '' }
   private get visionAssistModelId() { return resolveValue(this.opts.visionAssistModelId) ?? '' }
   private get images() { return resolveValue(this.opts.images) ?? [] }
 
@@ -248,6 +281,8 @@ export class DefaultSessionStrategy implements SessionStrategy {
     const memoryOn = this.memoryOn
     const roleId = this.roleId
     const effort = this.effort
+    const model = this.model
+    const providerAccountId = this.providerAccountId
     const visionAssistModelId = this.visionAssistModelId
     const images = this.images
     return {
@@ -260,6 +295,15 @@ export class DefaultSessionStrategy implements SessionStrategy {
         // CHG-015: chat selectors — omitted when empty so ws/topic/claw are unaffected.
         role_id: roleId || undefined,
         effort: effort || undefined,
+        // W1 fix: per-turn outbound model — omitted when empty (callers that bake the
+        // model at create time send none). The backend reconciles it onto session.ModelID
+        // so a mid-session 切模型 actually changes the outbound model.
+        model: model || undefined,
+        // 跨 provider 切模型 fix: the account that backs `model`. The backend reconciles
+        // it onto session.ProviderAccountID so the outbound ENDPOINT moves with the model
+        // (else a model on a different provider hits the old provider's endpoint → 400).
+        // Omitted when empty (CLI/subscription dispatch + create-time-baked callers).
+        provider_account_id: providerAccountId || undefined,
         vision_assist_model_id: visionAssistModelId || undefined,
         // CHG-015 需求8: image attachments — omitted when empty (ws/topic/claw send none).
         images: images.length ? images : undefined,

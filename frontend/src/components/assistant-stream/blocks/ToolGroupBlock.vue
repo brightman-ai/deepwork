@@ -20,16 +20,29 @@ const bodyId = `as-xpill-body-${++xpillSeq}`
 
 type ToolFamily = 'todo' | 'write' | 'edit' | 'read' | 'bash' | 'search' | 'fetch' | 'browser' | 'workspace' | 'generic'
 
+// CHG-016 R2 (F1): runtime-agnostic tool→family classifier. The old greedy
+// substring rules were coupled to claude's vocabulary (Bash/Read/Edit/Write) and
+// mis-bucketed every codex tool: `exec_command`→generic, `apply_patch`→generic,
+// `update_plan`→generic, and worst `write_stdin`→'write' (a *file* family → empty
+// path + a false "N 个文件" count). Classify by known names across claude + codex
+// + deepwork, SPECIFIC before generic. Key correctness: `write_stdin` is
+// process-stdin (command family), NOT a file write, so the command rule runs first
+// and claude's file 'Write' is matched by exact name only.
 function toolFamily(tool: AssistantToolEvent): ToolFamily {
   const name = tool.name.toLowerCase()
-  if (name.includes('todo')) return 'todo'
-  if (name === 'write' || name.includes('write')) return 'write'
-  if (name === 'edit' || name.includes('edit')) return 'edit'
-  if (name === 'read' || name.includes('read')) return 'read'
-  if (name === 'bash') return 'bash'
-  if (name.includes('search') || name.includes('grep') || name.includes('glob')) return 'search'
+  // command / shell / exec — claude Bash · codex exec_command + write_stdin · ctx_execute
+  if (name === 'bash' || name.includes('exec') || name.includes('shell') || name === 'write_stdin') return 'bash'
+  // plan / todo — claude TodoWrite · codex update_plan
+  if (name.includes('todo') || name.includes('plan')) return 'todo'
+  // edit / patch — claude Edit · codex apply_patch · str_replace
+  if (name.includes('edit') || name.includes('patch') || name.includes('str_replace')) return 'edit'
+  // create / write file — claude Write (exact). write_stdin already routed above.
+  if (name === 'write' || name.includes('writefile') || name.includes('create_file') || name === 'create') return 'write'
+  // read / view file — claude Read · view/cat
+  if (name === 'read' || name.includes('readfile') || name.includes('view') || name === 'cat') return 'read'
+  if (name.includes('search') || name.includes('grep') || name.includes('glob') || name.includes('ripgrep')) return 'search'
   if (name.includes('fetch')) return 'fetch'
-  if (name.includes('browser') || name.includes('page')) return 'browser'
+  if (name.includes('browser') || name.includes('page') || name.includes('snapshot')) return 'browser'
   if (name.includes('workspace') || name.includes('save')) return 'workspace'
   return 'generic'
 }
@@ -59,7 +72,13 @@ function chipLabel(tool: AssistantToolEvent, family: ToolFamily): string {
 
 function toolPath(tool: AssistantToolEvent, family: ToolFamily): string {
   const input = (tool.input ?? {}) as Record<string, unknown>
-  if (family === 'bash') return String(input.command ?? '').slice(0, 120)
+  if (family === 'bash') {
+    // claude Bash → {command:string}; codex exec_command → {command:string[]};
+    // write_stdin → no command (process stdin). Join arrays so it reads as a line.
+    const cmd = input.command ?? input.cmd ?? input.script
+    const text = Array.isArray(cmd) ? cmd.join(' ') : String(cmd ?? '')
+    return text.slice(0, 120)
+  }
   if (family === 'read' || family === 'write' || family === 'edit') return String(input.path ?? input.file_path ?? '').slice(0, 120)
   if (family === 'search') return String(input.query ?? input.pattern ?? '').slice(0, 120)
   if (family === 'fetch') return String(input.url ?? '').slice(0, 120)

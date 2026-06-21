@@ -189,8 +189,19 @@ function ensureAssistantMessage(
     streaming: true,
     started_at_ms: options.streamingStartedAt,
   }
-  options.messages.push(msg)
-  return msg
+  // RETURN THE REACTIVE PROXY, NOT THE RAW OBJECT. options.messages is a Vue reactive
+  // array (the controller's messages.value): pushing `msg` stores a reactive proxy of it,
+  // and ALL later mutations the apply loop performs (msg.live_usage = …, msg.usage = …,
+  // msg.elapsed_ms = …) must go THROUGH that proxy to fire the reactive set-trap. Returning
+  // the raw `msg` let the apply loop write the freshly-ADDED keys (live_usage / usage)
+  // straight onto the raw target — bypassing the proxy — so the UsageFooter `usage` computed
+  // (which tracked `message.live_usage` while it was still undefined) was never invalidated.
+  // The live multi-round footer then froze at its first render: TTFT / in/out / thinking
+  // stuck on「—」for every round after the first (started_at_ms/blocks happened to look right
+  // because their reads ride co-dependencies that DO retrigger). Reading the element back out
+  // of the array yields the proxy, so the whole turn's metrics now land reactively.
+  const index = options.messages.push(msg) - 1
+  return options.messages[index] ?? msg
 }
 
 function updateWaitingStatus(message: AssistantMessage, status: string, startedAt: number): void {
