@@ -69,6 +69,20 @@ export function getPortalSections(slot: string): PortalSection[] {
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 }
 
+/**
+ * Remove a single section by (slot, id). Complements definePortalSection: a host that
+ * COMPOSES another repo's section component into one of its own (e.g. the terminal folds the
+ * shared Internet Access section into its merged "Access" section) drops the standalone
+ * registration so it isn't rendered a second time as its own nav item. No-op if absent.
+ */
+export function unregisterPortalSection(slot: string, id: string): void {
+  const list = registry.get(slot)
+  if (!list) return
+  const next = list.filter((s) => s.id !== id)
+  if (next.length) registry.set(slot, next)
+  else registry.delete(slot)
+}
+
 /** Test/HMR helper — drop all registrations for a slot (or everything when omitted). */
 export function __clearPortalSections(slot?: string): void {
   if (slot === undefined) registry.clear()

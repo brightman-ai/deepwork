@@ -3,6 +3,7 @@ import {
   BookOpen,
   BrainCircuit,
   FolderKanban,
+  Network,
   MessageSquare,
   TerminalSquare,
   Bot,
@@ -18,6 +19,7 @@ export type PortalName =
   | "topic"
   | "chat"
   | "workspace"
+  | "workbench"
   | "claw"
   | "knowledge"
   | "cli"
@@ -60,6 +62,14 @@ export const portalNavItems: PortalNavItem[] = [
     portal: "workspace",
     icon: FolderKanban,
     description: "Project workbench",
+  },
+  {
+    name: "workbench",
+    label: "工作台",
+    path: "/workbench",
+    portal: "workbench",
+    icon: Network,
+    description: "Knowledge Workbench — 团队 Context SSOT",
   },
   {
     name: "claw",
@@ -167,6 +177,9 @@ export function pageTitleForRoute(path: string): string {
   if (path.startsWith("/portal/workspace") || path.startsWith("/ws")) {
     return "Workspace";
   }
+  if (path.startsWith("/workbench")) {
+    return "工作台";
+  }
   if (path.startsWith("/portal/claw") || path.startsWith("/claws")) {
     return "Claw Home";
   }
@@ -203,6 +216,9 @@ export function isPortalRouteActive(currentPath: string, item: PortalNavItem): b
   }
   if (item.name === "workspace") {
     return currentPath.startsWith("/portal/workspace") || currentPath.startsWith("/ws");
+  }
+  if (item.name === "workbench") {
+    return currentPath.startsWith("/workbench");
   }
   if (item.name === "companion") {
     return currentPath.startsWith("/companion");

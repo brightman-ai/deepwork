@@ -39,12 +39,12 @@ const visiblePortals = ref<string[]>([
   "topic", "chat", "workspace", "claw", "knowledge", "planner", "browser", "cli", "council", "open-design",
 ]);
 
-// v6 rail order (deepwork-v6.html): home → topic → chat → workspace →
+// v6 rail order (deepwork-v6.html): home → topic → chat → workspace → workbench →
 // open-design → browser → cli → claw → knowledge → requirement → council.
 // `home` resolves to "/" which the topic item already owns as active route, so
 // the dedicated home tile is the logo. Settings is pinned at the bottom.
 const RAIL_ORDER = [
-  "topic", "chat", "workspace", "open-design", "browser", "cli", "claw", "knowledge", "planner", "council",
+  "topic", "chat", "workspace", "workbench", "open-design", "browser", "cli", "claw", "knowledge", "planner", "council",
 ];
 
 const portalItems = computed(() => {
