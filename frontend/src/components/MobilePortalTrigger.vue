@@ -80,23 +80,46 @@ function onClick() {
 }
 
 @media (max-width: 768px) {
+  /* explore-r1 F3 (Human-authorized, 体验要优异): was a 44px opaque button floating at
+     mid-left over content (covered KPI labels / token rows / code — Witness-confirmed). Now
+     a SLIM edge pull-tab flush to the screen edge: covers only a sliver, translucent at rest,
+     blooms wider+opaque on touch. Keeps the shared draggable-edge nav affordance, stops the
+     content occlusion. */
   .mobile-portal-trigger {
     position: fixed;
-    left: calc(env(safe-area-inset-left, 0px) + 10px);
-    top: calc(50% - 23px);
+    left: 0;
+    top: calc(50% - 26px);
     z-index: 70;
     display: inline-flex;
-    width: 44px;
-    height: 46px;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    min-width: 15px;
+    height: 52px;
+    padding: 0;
     border: 1px solid hsl(var(--border));
-    border-left-color: transparent;
-    border-radius: 0 14px 14px 0;
-    background: hsl(var(--background) / 0.94);
-    color: hsl(var(--foreground));
-    box-shadow: 0 10px 30px hsl(var(--foreground) / 0.12);
-    backdrop-filter: blur(12px);
+    border-left: none;
+    border-radius: 0 10px 10px 0;
+    background: hsl(var(--background) / 0.55);
+    color: hsl(var(--muted-foreground));
+    box-shadow: 0 4px 14px hsl(var(--foreground) / 0.08);
+    backdrop-filter: blur(8px);
+    opacity: 0.7;
+    transition: opacity 0.15s, width 0.15s, background 0.15s;
     /* Own the vertical drag (useEdgeDrag); don't let the page scroll-hijack the gesture. */
     touch-action: none;
+  }
+  .mobile-portal-trigger:hover,
+  .mobile-portal-trigger:active,
+  .mobile-portal-trigger:focus-visible {
+    opacity: 1;
+    width: 22px;
+    background: hsl(var(--background) / 0.96);
+    color: hsl(var(--foreground));
+  }
+  .mobile-portal-trigger :deep(svg) {
+    width: 11px;
+    height: 11px;
   }
 }
 </style>

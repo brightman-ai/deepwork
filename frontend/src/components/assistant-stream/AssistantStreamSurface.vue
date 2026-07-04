@@ -171,7 +171,20 @@
           @input="resizeComposer"
           @keydown.enter.exact.prevent="submit"
         />
+        <!-- streaming 态：消费点 opt-in `stoppable` 时显 codex 式可点"■ 停止"→ emit('stop')
+             （接 @stop 调 /interrupt 中断当前生成：PTY 保进程 warm / SDK SIGINT）。未声明
+             stoppable 的消费点保留旧禁用"..."（不显示点了无效的钮 — 数据诚实，同 F2）。 -->
         <button
+          v-if="streaming && stoppable"
+          type="button"
+          class="as-composer__send as-composer__send--stop"
+          data-testid="assistant-composer-stop"
+          @click="emit('stop')"
+        >
+          ■ 停止
+        </button>
+        <button
+          v-else
           type="button"
           class="as-composer__send"
           :disabled="!canSend"
@@ -247,6 +260,9 @@ const props = withDefaults(defineProps<{
   // F10: chat 等消费点接入用户消息版本切换 → 置 true 才显示 UserBubble nav 钮。
   userBubbleNav?: boolean
   userBubbleTotal?: number
+  // A4: 消费点接线了 @stop（调 /interrupt 中断当前生成）→ 置 true，streaming 态把发送键
+  // 换成 codex 式可点"■ 停止"。默认 false：未接线的消费点保留旧禁用"..."（不显示无效钮）。
+  stoppable?: boolean
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -273,6 +289,7 @@ const props = withDefaults(defineProps<{
   blockActionable: false,
   userBubbleNav: false,
   userBubbleTotal: 0,
+  stoppable: false,
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -290,6 +307,7 @@ export interface AssistantBlockAction {
 
 const emit = defineEmits<{
   (e: 'send', text: string): void
+  (e: 'stop'): void
   (e: 'clear-error'): void
   (e: 'retry'): void
   (e: 'block-action', action: AssistantBlockAction): void
@@ -927,6 +945,19 @@ function renderMarkdown(value: unknown): string {
   background: var(--dw-sf3);
   color: var(--dw-mu);
   cursor: not-allowed;
+}
+
+/* streaming 态停止键 — codex 式可点"■ 停止"：红调以区别 amber 发送键，明确"中断当前
+   生成"的破坏性动作语义；进程仍 warm（非 kill），故非危险红而是温和警示红。 */
+.as-composer__send--stop {
+  background: var(--dw-red-dim);
+  color: var(--dw-red);
+  border: 1px solid var(--dw-red);
+  cursor: pointer;
+}
+
+.as-composer__send--stop:hover {
+  background: color-mix(in srgb, var(--dw-red) 20%, transparent);
 }
 
 .as-pane__launcher {
