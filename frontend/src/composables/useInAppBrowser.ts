@@ -9,7 +9,7 @@
  * SSOT: shared by every deepwork host (standalone terminal, standalone teamworkbench, pro) via
  * @ce/components/InAppBrowserGuide. Pure — only navigator.userAgent — so it ports anywhere.
  */
-import { ref } from 'vue'
+import { ref, computed, type ComputedRef, type Ref } from 'vue'
 
 export interface InAppBrowserInfo {
   /** true when running inside a known in-app webview that should be escaped. */
@@ -44,6 +44,27 @@ const info = ref<InAppBrowserInfo>(
   detectInAppBrowser(typeof navigator !== 'undefined' ? navigator.userAgent : ''),
 )
 
-export function useInAppBrowser() {
-  return info
+// Session-scoped dismissal, shared across every caller so the host App and the guide agree.
+const DISMISS_KEY = 'inapp_guide_dismissed'
+const dismissed = ref(typeof sessionStorage !== 'undefined' && sessionStorage.getItem(DISMISS_KEY) === '1')
+
+// blocking = we are inside a broken in-app webview AND the user has not chosen to proceed. When true
+// the host must render ONLY the guide (not auth, not the app) — a broken webview should not load the
+// app at all, and this makes the guide the top-priority full-screen gate with no z-index war against
+// host modals.
+const blocking = computed(() => info.value.isInApp && !dismissed.value)
+
+function dismiss() {
+  dismissed.value = true
+  try { sessionStorage.setItem(DISMISS_KEY, '1') } catch { /* private mode → in-memory only */ }
+}
+
+export interface InAppBrowser {
+  info: Ref<InAppBrowserInfo>
+  blocking: ComputedRef<boolean>
+  dismiss: () => void
+}
+
+export function useInAppBrowser(): InAppBrowser {
+  return { info, blocking, dismiss }
 }

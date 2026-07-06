@@ -14,17 +14,13 @@ import { X } from 'lucide-vue-next'
 import { useInAppBrowser } from '@ce/composables/useInAppBrowser'
 import { copyTextToClipboard } from '@ce/utils/clipboard'
 
-const info = useInAppBrowser()
-const DISMISS_KEY = 'inapp_guide_dismissed'
-const dismissed = ref(sessionStorage.getItem(DISMISS_KEY) === '1')
+// blocking (isInApp && !dismissed) + dismiss come from the shared composable so the host App can gate
+// its own content on the SAME state (render only this guide while blocking).
+const { info, blocking, dismiss } = useInAppBrowser()
 const copied = ref(false)
 
 const currentUrl = window.location.href
 
-function dismiss() {
-  dismissed.value = true
-  sessionStorage.setItem(DISMISS_KEY, '1')
-}
 async function copyLink() {
   if (await copyTextToClipboard(currentUrl)) {
     copied.value = true
@@ -34,7 +30,7 @@ async function copyLink() {
 </script>
 
 <template>
-  <div v-if="info.isInApp && !dismissed" class="inapp-overlay" role="dialog" aria-modal="true">
+  <div v-if="blocking" class="inapp-overlay" role="dialog" aria-modal="true">
     <!-- Arrow pointing at the top-right "···" menu WeChat/QQ render there. -->
     <div class="inapp-arrow" aria-hidden="true">↗</div>
 
@@ -63,13 +59,16 @@ async function copyLink() {
 
 <style scoped>
 .inapp-overlay {
-  position: fixed; inset: 0; z-index: 3000;
-  background: rgba(6, 8, 12, 0.92);
+  /* Absolute top layer: must sit above every host modal (workbench identity/rollover modals go up to
+     z-index 3600), so we take the max. The host also renders ONLY this guide while blocking, but the
+     high z-index is belt-and-suspenders in case a host mounts it alongside other UI. */
+  position: fixed; inset: 0; z-index: 2147483647;
+  background: rgba(6, 8, 12, 0.96);
   display: flex; align-items: center; justify-content: center;
-  padding: 24px; backdrop-filter: blur(2px);
+  padding: 24px; backdrop-filter: blur(3px);
 }
 .inapp-arrow {
-  position: fixed; top: 8px; right: 16px;
+  position: fixed; top: 8px; right: 16px; z-index: 2147483647;
   font-size: 40px; line-height: 1; color: #f59e0b;
   animation: nudge 1s ease-in-out infinite;
 }
