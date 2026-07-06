@@ -8,14 +8,19 @@
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Globe, ClipboardCopy } from 'lucide-vue-next'
-import { useTunnel } from '@ce/composables/useTunnel'
+import { useTunnel, type UseTunnel } from '@ce/composables/useTunnel'
 import { copyTextToClipboard } from '@ce/utils/clipboard'
+
+// A host that composes this section (e.g. AccessSection's 公网 tab) can inject ITS useTunnel
+// instance so the two share one reactive tunnel state — enable here, the composer's QR updates. When
+// mounted standalone (no prop), we own a fresh instance, exactly as before.
+const props = defineProps<{ tunnel?: UseTunnel }>()
 
 // Tunnel lifecycle (start → download → poll → ready) lives in the shared useTunnel SSOT; this
 // section is now a thin view over it. The composable returns refs; wrapping them in reactive()
 // deep-unwraps them so the existing template (`tunnel.running`, `tunnel.totalBytes`, …) and the
 // computeds below keep reading plain values — zero template/behavior change.
-const _tunnel = useTunnel()
+const _tunnel = props.tunnel ?? useTunnel()
 const tunnel = reactive({
   running: _tunnel.running,
   starting: _tunnel.starting,
