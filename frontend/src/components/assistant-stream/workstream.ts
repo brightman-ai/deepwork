@@ -6,6 +6,13 @@ import type {
   AssistantUsageInfo,
 } from './types'
 
+// pendingModelFallback 跨"status 帧先于 assistant 消息创建"的窗口持久 model_fallback。
+// owner CLI/订阅版路径的 model_fallback 只骑在开场 status 帧上 —— 那时 assistant 消息还没建、
+// applyWorkstreamEvent 返回 null，若只在 result 存在时 stamp 就漏了。按 options.messages 这个
+// 稳定的 reactive 数组做键持久最近见到的 fallback，后续帧建出消息时补 stamp。仍是 fallback 层：
+// 绝不盖 usage.model 权威值、不覆盖已有 runtime.model；messages 数组被丢弃时整个条目自动 GC。
+const pendingModelFallback = new WeakMap<AssistantMessage[], string>()
+
 export interface AssistantWorkstreamEvent {
   kind: string
   status?: string
@@ -65,7 +72,38 @@ export async function readAssistantWorkstream(
   }
 }
 
+// applyAssistantWorkstreamEvent applies one frame to the running message, then layers
+// the diagnostic model FALLBACK on top of the result. SSOT: usage.model (event.meta.model /
+// event.done.model / event.usage.model, folded by usageFrom → applyWorkstreamEvent) is the
+// AUTHORITATIVE layer — the runtime's own honest report of the model it actually used.
+// event.meta.model_fallback (backend collab drive: the configured/dispatched model id, e.g.
+// a subscription-plan claude PTY that never reports a model at all) is a strictly WEAKER
+// fallback layer — it may only fill result.runtime.model when the authoritative layer left
+// it empty, and must NEVER touch result.usage.model. Getting this precedence backwards would
+// let a stale configured id overwrite a real (but different) model the runtime later reports.
 export function applyAssistantWorkstreamEvent(
+  event: AssistantWorkstreamEvent,
+  current: AssistantMessage | null,
+  options: AssistantWorkstreamApplyOptions,
+): AssistantMessage | null {
+  // owner CLI 的 model_fallback 可能只在消息创建前的 status 帧到达 → 先持久到 WeakMap，
+  // 使后续帧真正建出消息时仍能补 stamp（此帧 result 为 null 也不丢）。
+  const fbNow = stringFrom(event.meta?.model_fallback)
+  if (fbNow) pendingModelFallback.set(options.messages, fbNow)
+  const result = applyWorkstreamEvent(event, current, options)
+  const fallback = fbNow || pendingModelFallback.get(options.messages)
+  if (fallback && result && !result.runtime?.model) {
+    result.runtime = { ...result.runtime, model: fallback }
+  }
+  return result
+}
+
+// applyWorkstreamEvent is the original per-frame reducer, unchanged in logic — kept as an
+// inner function so applyAssistantWorkstreamEvent can post-process its result (model_fallback
+// layering above) without touching any of the switch arms below, in particular
+// ensureAssistantMessage's REACTIVE PROXY return (see its comment): every `current`/`msg`
+// this function threads through IS that proxy, and this wrapper must never re-wrap or copy it.
+function applyWorkstreamEvent(
   event: AssistantWorkstreamEvent,
   current: AssistantMessage | null,
   options: AssistantWorkstreamApplyOptions,
@@ -161,6 +199,8 @@ export function applyAssistantWorkstreamEvent(
 
 export function defaultAssistantWorkstreamStatusLabel(status: string): string {
   switch (status) {
+    case 'initializing': return '初始化中'
+    case 'spawning': return '启动进程'
     case 'loading_context': return '读取上下文'
     case 'context_done': return '上下文就绪'
     case 'calling_model':
@@ -169,6 +209,18 @@ export function defaultAssistantWorkstreamStatusLabel(status: string): string {
     case 'provider_first_event': return '模型开始响应'
     case 'provider_stream_done': return '模型响应完成'
     case 'running': return '处理中'
+    // CHG-B-CP3 L3: raw system/* subtypes the CLI wire decoders (kit/llm/stream
+    // claude.go + stream_codex.go) pass straight through as `status` when a
+    // subtype isn't otherwise mapped. Without a dictionary entry these leaked
+    // verbatim to the user — worst case a slow-reasoning model (e.g. redacted
+    // extended thinking) sits on "thinking_tokens" for minutes looking dead.
+    case 'thinking_tokens': return '深度推理中'
+    case 'thinking': return '深度推理中'
+    case 'init': return '初始化中'
+    case 'started': return '启动中'
+    case 'streaming': return '模型开始响应'
+    case 'tool_call': return '准备调用工具'
+    case 'rate_limit': return '触发限流，等待重试'
     default: return status
   }
 }
@@ -363,8 +415,42 @@ function normalizeToolEvent(
   }
 }
 
-function usageFrom(event: AssistantWorkstreamEvent): AssistantUsageInfo {
+// RawTurnMetrics is the canonical, source-agnostic per-turn metric record. It is
+// the SSOT seam between the two assemblers: the LIVE path (usageFrom, below) and
+// the REPLAY path (mapTranscript.toUsage in deepwork-pro) both flatten their own
+// source into this shape and hand it to normalizeUsage — so the footer field set
+// is DEFINED ONCE and can never drift between live and replay (the class of bug
+// where a replayed turn silently dropped ttft/model while the live turn showed it).
+export interface RawTurnMetrics {
+  input_tokens?: number
+  output_tokens?: number
+  thinking_tokens?: number
+  cache_read_tokens?: number
+  ttft_ms?: number
+  cost_usd?: number
+  estimated?: boolean
+  model?: string
+}
+
+// normalizeUsage is the ONE mapping from raw per-turn metrics → the footer VM
+// (AssistantUsageInfo). Adding/removing a footer metric = editing this one place;
+// both live and replay inherit it. Absent fields stay undefined → footer「—」
+// (honest unknown, never fabricated).
+export function normalizeUsage(m: RawTurnMetrics): AssistantUsageInfo {
   return {
+    input_tokens: m.input_tokens,
+    output_tokens: m.output_tokens,
+    thinking_tokens: m.thinking_tokens,
+    cache_read_tokens: m.cache_read_tokens,
+    ttft_ms: m.ttft_ms,
+    cost_usd: m.cost_usd,
+    estimated: m.estimated,
+    model: m.model,
+  }
+}
+
+function usageFrom(event: AssistantWorkstreamEvent): AssistantUsageInfo {
+  return normalizeUsage({
     input_tokens: numberFrom(event.done?.input_tokens ?? event.usage?.input_tokens),
     thinking_tokens: numberFrom(event.done?.thinking_tokens ?? event.usage?.thinking_tokens),
     output_tokens: numberFrom(event.done?.output_tokens ?? event.usage?.output_tokens),
@@ -376,7 +462,10 @@ function usageFrom(event: AssistantWorkstreamEvent): AssistantUsageInfo {
     cache_read_tokens: numberFrom(
       event.done?.cache_read_tokens ?? event.usage?.cache_read_tokens ?? event.meta?.cache_read_tokens,
     ),
-  }
+    // 模型 id 骑在任一帧的 meta.model (owner processor / gateway) 或 done/usage 上。
+    // 有则显真实模型；订阅版 runtime 从不上报 → undefined → footer 回落 runtime 意图或「—」。
+    model: stringFrom(event.meta?.model ?? event.done?.model ?? event.usage?.model),
+  })
 }
 
 // mergeUsage folds a later usage snapshot onto an earlier one WITHOUT letting an
@@ -394,6 +483,9 @@ function mergeUsage(prev?: AssistantUsageInfo, next?: AssistantUsageInfo): Assis
     estimated: next.estimated || prev.estimated,
     ttft_ms: next.ttft_ms ?? prev.ttft_ms,
     cache_read_tokens: next.cache_read_tokens ?? prev.cache_read_tokens,
+    // Model rides whichever round first reported it (a subscription round may omit
+    // it); never let a later model-less usage frame blank an already-captured id.
+    model: next.model ?? prev.model,
   }
 }
 
@@ -406,4 +498,13 @@ function numberFrom(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined
   const n = Number(value)
   return Number.isFinite(n) ? n : undefined
+}
+
+// stringFrom coerces a meta value to a real model id, dropping the empty string and
+// the "default" runtime-choose sentinel (never a price-matchable id) so the footer
+// falls back to the session runtime / 「—」rather than showing "default".
+function stringFrom(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const s = value.trim()
+  return s === '' || s === 'default' ? undefined : s
 }

@@ -23,6 +23,10 @@ export interface AssistantUsageInfo {
   // CHG-014 D5①: rmeta footer 真数据。无源字段一律可选 → 缺失时渲染「—」。
   ttft_ms?: number          // 首 token 时延 (仅运行时可得，△ 软标)
   cache_read_tokens?: number
+  // 该轮实际使用的模型 id (SSOT: per-turn 实测值)。footer 优先读它，回落
+  // message.runtime?.model (会话意图)。live 从事件 meta.model 取，replay 从
+  // usage 块 / transcript meta 取 — 走同一 normalizeUsage，live≡replay 不漂移。
+  model?: string
 }
 
 export interface AssistantToolEvent {

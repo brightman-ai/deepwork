@@ -184,6 +184,28 @@ input, textarea, select, [contenteditable]:not([contenteditable="false"]) {
   overscroll-behavior: contain;
 }
 
+/* ── Dark themed scrollbars ─────────────────────────────────────────────────
+   color-scheme:dark (tokens.css .dark) already stops the UA painting the default
+   LIGHT scrollbar chrome — that was the bright-white gutter on the right of dark
+   panels (share 总览面板 overflow container). This adds a thin, muted,
+   theme-consistent thumb on top. Component-scoped rules (which carry a
+   [data-v-*] attr → higher specificity) still win where a scrollbar is
+   intentionally hidden (xterm viewport, horizontal tab strips). */
+.dark {
+  scrollbar-width: thin;                                       /* Firefox */
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+.dark ::-webkit-scrollbar-track { background: transparent; }
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.dark ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.45); }
+.dark ::-webkit-scrollbar-corner { background: transparent; }
+
 /* ── Nebula: Breathing dot animation ───────────────────────────────────────── */
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }

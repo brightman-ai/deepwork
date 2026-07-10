@@ -79,6 +79,7 @@
 
 :root {
   /* light structure (reserved, not the product theme) */
+  color-scheme: light;
   --background: 220 14% 96%;
   --foreground: 220 20% 12%;
   --card: 0 0% 100%;
@@ -110,6 +111,11 @@
 }
 
 .dark {
+  /* v6 is dark-only (index.html <html class="dark">); tell the UA to paint native
+     scrollbars/form controls dark. Without this the browser renders the default
+     LIGHT scrollbar chrome → a bright-white gutter on the right of dark panels
+     (e.g. share 总览面板 overflow container). */
+  color-scheme: dark;
   --background: 240 7% 5.5%;          /* --dw-bg  */
   --foreground: 240 10% 92%;          /* --dw-fg  */
   --card: 240 5% 8.2%;                /* --dw-sf  */

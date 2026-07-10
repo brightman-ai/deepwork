@@ -83,7 +83,11 @@ const tokensIO = computed(() => {
   const th = usage.value?.thinking_tokens
   if (i === undefined && o === undefined && th === undefined) return '—'
   const parts = [`↓${num(i)}`, `↑${num(o)}`]
-  if (th !== undefined && th >= 0) parts.push(`✻${num(th)}`)
+  // Reasoning tokens: show ✻N only when there are ACTUALLY reasoning tokens (>0). A source
+  // that redacts extended thinking (e.g. a Claude subscription) reports thinking_tokens=0,
+  // and「✻0」on a visibly-reasoning turn reads as "zero thinking" — misleading. 0/absent →
+  // omit ✻ (honest: we have no reasoning count to show, not "it reasoned zero").
+  if (th !== undefined && th > 0) parts.push(`✻${num(th)}`)
   return parts.join(' / ')
 })
 
@@ -94,7 +98,9 @@ const hasCacheRead = computed(() => {
   return v !== undefined && v > 0
 })
 const cacheRead = computed(() => num(cacheReadValue.value))
-const model = computed(() => props.message.runtime?.model || '—')
+// SSOT: per-turn 实测模型 (usage.model, live 从 meta.model / replay 从 usage 块) 优先，
+// 回落 message.runtime?.model (会话意图)。两源皆缺 → 「—」(诚实, 订阅版从不上报模型)。
+const model = computed(() => usage.value?.model || props.message.runtime?.model || '—')
 const clock = computed(() => {
   const ts = props.message.started_at_ms
   if (!ts) return '—'

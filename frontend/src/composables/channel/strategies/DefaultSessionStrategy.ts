@@ -1,5 +1,9 @@
 import type { SessionStrategy } from '../types'
 import type { AssistantBlock, AssistantMessage, AssistantToolEvent, AssistantUsageInfo } from '@ce/components/assistant-stream/types'
+// SSOT: the chat-history footer uses the SAME normalizer the live stream (usageFrom)
+// and the runtime replay (mapTranscript.toUsage) use — one field-set definition, so a
+// history-rebuilt turn renders identical metrics to its live original (no drift).
+import { normalizeUsage } from '@ce/components/assistant-stream/workstream'
 import { createTrace, tracedFetch, createLogger } from '@ce/utils/obs'
 import type { Ref } from 'vue'
 
@@ -35,6 +39,13 @@ interface HistoryTurn {
   /** CHG-016: reasoning token 单列 (turns.thinking_tokens). null/缺失 → undefined. */
   thinking_tokens?: number | null
   cache_read_tokens?: number | null
+  /** turns.model — the turn's actual model id, so the history footer shows the model
+   *  (SSOT with live/replay). null/缺失/'default' → undefined → footer 回落 runtime/「—」。 */
+  model?: string | null
+  /** turns.created_at (RFC3339) — the turn's start time, so the history footer shows the
+   *  clock (时间) instead of「—」. Already on the wire (the /turns handler embeds the full
+   *  Turn); the assembler just never read it → every replayed turn's clock was blank. */
+  created_at?: string
 }
 
 export interface DefaultSessionStrategyOptions {
@@ -180,12 +191,17 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
   // (re)load replaces the live message with this one). 仅填实际存在的列 → footer 诚实
   // 显「—」for genuinely absent columns, never fabricated 0.
   const usage = historyUsage(turn)
+  const startedAtMs = startedAtMsFrom(turn.created_at)
   return {
     id: `a-${turnNo}`,
     role: 'assistant',
     content: String(turn.ai_output ?? ''),
     blocks,
-    elapsed_ms: Number(turn.duration_ms ?? 0),
+    // 总耗时: only when the column is actually present — `?? 0` fabricated a fake
+    // 「总耗时 0.0s」for turns whose duration was never persisted (should be「—」).
+    ...(turn.duration_ms != null ? { elapsed_ms: Number(turn.duration_ms) } : {}),
+    // 时钟(时间): the turn's start, so the footer clock matches live/replay instead of「—」.
+    ...(startedAtMs !== undefined ? { started_at_ms: startedAtMs } : {}),
     ...(usage ? { usage } : {}),
     status: turn.status === 'failed' ? 'failed' : 'normal',
     error: turn.error,
@@ -194,10 +210,21 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
 
 // 历史 turn → footer usage。仅挂实际存在的持久化列；null/undefined 列省略 (footer 显
 // 「—」)，全缺则返回 undefined（不挂空 usage）。与 OverviewPanel 同源 (turns.*)。
+// startedAtMsFrom parses a persisted RFC3339 timestamp (turns.created_at) → epoch ms for
+// the footer clock. Undefined for a missing/unparseable value → clock「—」(honest).
+function startedAtMsFrom(iso?: string): number | undefined {
+  if (!iso) return undefined
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : undefined
+}
+
 function historyUsage(turn: HistoryTurn): AssistantUsageInfo | undefined {
   const pick = (v: number | null | undefined): number | undefined =>
     (v === null || v === undefined) ? undefined : v
-  const usage: AssistantUsageInfo = {
+  const model = typeof turn.model === 'string' && turn.model.trim() !== '' && turn.model.trim() !== 'default'
+    ? turn.model.trim()
+    : undefined
+  const usage = normalizeUsage({
     ttft_ms: pick(turn.ttft_ms),
     input_tokens: pick(turn.input_tokens),
     output_tokens: pick(turn.output_tokens),
@@ -205,7 +232,8 @@ function historyUsage(turn: HistoryTurn): AssistantUsageInfo | undefined {
     // history-rebuilt footer shows the SAME thinking token the live stream did.
     thinking_tokens: pick(turn.thinking_tokens),
     cache_read_tokens: pick(turn.cache_read_tokens),
-  }
+    model,
+  })
   const hasAny = Object.values(usage).some((v) => v !== undefined)
   return hasAny ? usage : undefined
 }
