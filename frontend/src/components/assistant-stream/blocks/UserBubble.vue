@@ -7,6 +7,9 @@ defineProps<{
   current?: number           // 当前 / 总数 显示
   total?: number
   edited?: boolean
+  // owner 对称 steer: 该气泡是"运行中插入本轮"的补充 → 显「↩ 已插入本轮」意符,
+  // 与普通轮视觉区分(设计心理学: 可视清晰, 事后能辨这是中途注入非独立一轮)。
+  steered?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
@@ -16,12 +19,13 @@ const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
   <div class="v6-msg-u" data-testid="assistant-user-bubble">
     <div class="v6-msg-u__col">
       <div class="v6-bub">{{ content }}</div>
-      <div v-if="round !== undefined || total" class="v6-rnd">
+      <div v-if="round !== undefined || total || steered" class="v6-rnd">
         <span v-if="round !== undefined" class="v6-rndchip">#{{ round }}</span>
         <button v-if="total && total > 1" type="button" @click="emit('nav', -1)">‹</button>
         <span v-if="total && total > 1">{{ current ?? 1 }} / {{ total }}</span>
         <button v-if="total && total > 1" type="button" @click="emit('nav', 1)">›</button>
         <span v-if="edited" class="v6-rnd__edited">已编辑</span>
+        <span v-if="steered" class="v6-rnd__steered" title="运行中插入的补充，已折进当前轮（未新起一轮）">↩ 已插入本轮</span>
       </div>
     </div>
   </div>
@@ -79,4 +83,21 @@ const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
 }
 .v6-rnd button:hover { background: var(--dw-sf2); color: var(--dw-fg); }
 .v6-rnd__edited { margin-left: 4px; }
+/* steer 意符: 低强度琥珀 pill(同 ThinkingBlock accent-dim), 标记"运行中插入本轮"——
+   够醒目让用户事后一眼辨出这是中途注入的补充, 又不喧宾夺主盖过消息本身。 */
+.v6-rnd__steered {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0 6px;
+  height: 15px;
+  border-radius: 8px;
+  background: var(--dw-ac-dim);
+  border: 1px solid var(--dw-ac-border-dim);
+  color: var(--dw-ac);
+  font-family: var(--dw-mono);
+  font-size: 9px;
+  flex-shrink: 0;
+  cursor: default;
+}
 </style>

@@ -68,6 +68,7 @@
             :round="userRoundOf(index)"
             :current="userBubbleNav ? (message.versionIndex ?? 1) : undefined"
             :total="userBubbleNav ? (message.versionCount ?? userBubbleTotal) : undefined"
+            :steered="message.steered"
             @nav="(dir) => emit('block-action', { action: 'user-nav', block: message, message, index, payload: { dir } })"
           />
           <template v-else>

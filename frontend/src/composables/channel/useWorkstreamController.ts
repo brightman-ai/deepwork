@@ -280,7 +280,8 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
    */
   async function steer(text: string): Promise<void> {
     if (!text.trim() || !streaming.value) return
-    const bubble: AssistantMessage = { id: `u-steer-${Date.now()}`, role: 'user', content: text }
+    // steered:true → UserBubble 显「↩ 已插入本轮」意符, 与普通轮视觉区分(设计心理学: 可视清晰)。
+    const bubble: AssistantMessage = { id: `u-steer-${Date.now()}`, role: 'user', content: text, steered: true }
     messages.value.push(bubble) // 乐观: 用户补充的话立即上屏(插入运行轮, 反应走主流)
     const drop = () => {
       const i = messages.value.indexOf(bubble)

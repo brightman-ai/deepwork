@@ -205,6 +205,9 @@ export interface AssistantMessage {
   // 且 userBubbleNav=true 时由 surface 透传给 UserBubble；缺失 → 不渲染 nav 钮（无死 UI）。
   versionIndex?: number       // 当前版本序号 (1-based)
   versionCount?: number       // 总版本数 (>1 才显示切换)
+  // owner 对称 steer: 该用户气泡是"运行中插入本轮"的补充(useWorkstreamController.steer 乐观上屏)。
+  // UserBubble 据此显「↩ 已插入本轮」意符, 与普通轮视觉区分(设计心理学: 可视清晰/事后可辨)。
+  steered?: boolean
 }
 
 export interface AssistantLauncherItem {
