@@ -207,6 +207,17 @@ export function pageTitleForRoute(path: string): string {
   return "Deepwork";
 }
 
+/**
+ * 反查当前路径归属哪个 portal(用于导航位置记忆的写点 — router afterEach)。
+ * 复用 isPortalRouteActive 的路由归属判定, 不重复一套匹配逻辑。
+ */
+export function portalForPath(path: string): PortalName | null {
+  for (const item of portalNavItems) {
+    if (item.portal && isPortalRouteActive(path, item)) return item.portal
+  }
+  return null
+}
+
 export function isPortalRouteActive(currentPath: string, item: PortalNavItem): boolean {
   // "/" is the v6 home dashboard (CHG-014 V2). It is owned by the rail logo tile,
   // not any portal item, so no portal rail item is active on home. (Previously
@@ -239,7 +250,10 @@ export function isPortalRouteActive(currentPath: string, item: PortalNavItem): b
     return currentPath.startsWith("/portal/settings") || currentPath.startsWith("/settings");
   }
   if (item.name === "open-design") {
-    return currentPath.startsWith("/portal/od") || currentPath.startsWith("/open-design");
+    // CHG-014 D1: /od 是当前活路由(portalNav item.path 仍是遗留 /portal/od,
+    // 未随迁移更新)——若不认 /od 前缀,则该 portal 的 rail 高亮/位置记忆永远
+    // 判不到当前路由所属(即便 /portal/od、/open-design 已只是重定向别名)。
+    return currentPath.startsWith("/od") || currentPath.startsWith("/portal/od") || currentPath.startsWith("/open-design");
   }
   if (item.name === "cli") {
     return currentPath.startsWith("/portal/cli") || currentPath.startsWith("/cli");

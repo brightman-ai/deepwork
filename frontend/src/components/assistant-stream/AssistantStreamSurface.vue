@@ -163,8 +163,8 @@
           ref="textareaRef"
           v-model="draft"
           class="as-composer__input"
-          :placeholder="placeholder"
-          :disabled="disabled || streaming"
+          :placeholder="effectivePlaceholder"
+          :disabled="disabled || (streaming && !steerable)"
           rows="1"
           aria-label="消息输入"
           data-testid="assistant-composer-input"
@@ -263,6 +263,10 @@ const props = withDefaults(defineProps<{
   // A4: 消费点接线了 @stop（调 /interrupt 中断当前生成）→ 置 true，streaming 态把发送键
   // 换成 codex 式可点"■ 停止"。默认 false：未接线的消费点保留旧禁用"..."（不显示无效钮）。
   stoppable?: boolean
+  // owner 对称 steer: 消费点接线了 @steer（POST input-events 把补充说明插入运行轮）→
+  // 置 true，streaming 态 textarea 不再锁死、Enter 走 steer 而非新轮 send。默认 false：
+  // 未接线的消费点保留旧行为（streaming 时禁用输入，同 canSend 语义）。
+  steerable?: boolean
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -290,6 +294,7 @@ const props = withDefaults(defineProps<{
   userBubbleNav: false,
   userBubbleTotal: 0,
   stoppable: false,
+  steerable: false,
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -308,6 +313,7 @@ export interface AssistantBlockAction {
 const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'stop'): void
+  (e: 'steer', text: string): void
   (e: 'clear-error'): void
   (e: 'retry'): void
   (e: 'block-action', action: AssistantBlockAction): void
@@ -323,6 +329,12 @@ const showScrollButton = ref(false)
 const contextItems = computed(() => props.contextItems ?? [])
 const launcherItems = computed(() => props.launcherItems ?? [])
 const canSend = computed(() => !props.disabled && !props.streaming && draft.value.trim().length > 0)
+// steerable + streaming 态：placeholder 提示 Enter 走 steer（插入运行轮），而非常规发送。
+const effectivePlaceholder = computed(() =>
+  props.streaming && props.steerable
+    ? '补充说明会插入当前轮…（Enter 排队 · Shift+Enter 换行）'
+    : props.placeholder,
+)
 const hasLiveAssistantMessage = computed(() => {
   const last = props.messages[props.messages.length - 1]
   return Boolean(
@@ -371,7 +383,18 @@ function shouldShowFooter(message: AssistantMessage): boolean {
 
 function submit(): void {
   const text = draft.value.trim()
-  if (!text || !canSend.value) return
+  if (!text) return
+  // owner 对称 steer: streaming + steerable 态下 Enter 不新开轮，而是把补充说明插入
+  // 正在跑的运行轮（消费点 @steer 调 POST input-events）。canSend 语义不变（仍要求
+  // !streaming）——发送按钮在 streaming 时保持禁用，steer 只走 Enter 这一条路径。
+  if (props.streaming && props.steerable) {
+    draft.value = ''
+    launcherOpen.value = false
+    resizeComposer()
+    emit('steer', text)
+    return
+  }
+  if (!canSend.value) return
   draft.value = ''
   launcherOpen.value = false
   resizeComposer()

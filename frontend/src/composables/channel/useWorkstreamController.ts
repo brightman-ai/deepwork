@@ -46,6 +46,12 @@ export interface WorkstreamController {
   statusLabel: ComputedRef<string>
   surfaceProps: ComputedRef<SurfaceProps>
   send(text: string): Promise<void>
+  /**
+   * owner 对称 steer: 把补充说明插入正在跑的运行轮（POST input-events）。乐观上屏用户
+   * 气泡；AI 对补充的反应出现在已打开的主轮流上（不是这次 POST 的响应体）。当前轮不支持
+   * steer（非订阅版/传输不支持）时后端落回 error 事件，此处丢弃乐观气泡 + 报错。
+   */
+  steer(text: string): Promise<void>
   /** Re-send the last turn that errored out (used by the surface 重试 button). */
   retry(): Promise<void>
   abort(): void
@@ -265,6 +271,46 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
     }
   }
 
+  /**
+   * owner 对称 steer: streaming 态下把补充说明插入正在跑的运行轮，而不是新开一轮。
+   * 后端 POST /api/sessions/:id/input-events 在有在飞轮时 steer 成功，SSE 回一个
+   * `{kind:'status', status:'steered', meta:{steered:true}}` 即关闭 —— AI 对这次补充的
+   * 反应出现在已打开的主轮流上（不是这个 POST 的响应体）。若后端不可 steer（非订阅版/
+   * 传输不支持）→回一个 error 事件，此处丢弃乐观气泡 + 报错，不静默吞。
+   */
+  async function steer(text: string): Promise<void> {
+    if (!text.trim() || !streaming.value) return
+    const bubble: AssistantMessage = { id: `u-steer-${Date.now()}`, role: 'user', content: text }
+    messages.value.push(bubble) // 乐观: 用户补充的话立即上屏(插入运行轮, 反应走主流)
+    const drop = () => {
+      const i = messages.value.indexOf(bubble)
+      if (i >= 0) messages.value.splice(i, 1)
+    }
+    try {
+      const sessionId = await strategy.ensureSession()
+      const { url, body } = strategy.buildRequest(sessionId, text)
+      const trace = createTrace('workstream-controller/steer')
+      const resp = await tracedFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }, trace)
+      if (!resp.ok) throw new Error(`插入失败 (${resp.status})`)
+      let steered = false
+      let streamErr = ''
+      await readAssistantWorkstream(resp, (ev) => {
+        if (ev.kind === 'status' && (ev.status === 'steered' || ev.meta?.steered)) steered = true
+        if (ev.kind === 'error') streamErr = ev.content || ev.error || '插入失败'
+      })
+      if (streamErr) throw new Error(streamErr)
+      if (!steered) throw new Error('当前轮不支持插入(该运行时无法中途注入),请等待完成后再发')
+      // steered → 保留乐观气泡; AI 对本次补充的反应会出现在已打开的主轮流上。
+    } catch (e) {
+      drop()
+      error.value = e instanceof Error ? e.message : '插入失败'
+    }
+  }
+
   /** Re-send the last user turn after a failure (surface 重试 button). */
   async function retry(): Promise<void> {
     if (streaming.value || !lastSentText.trim()) return
@@ -342,6 +388,7 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
     statusLabel,
     surfaceProps,
     send,
+    steer,
     retry,
     abort,
     loadHistory,

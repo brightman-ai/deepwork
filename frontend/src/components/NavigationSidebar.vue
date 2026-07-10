@@ -15,7 +15,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { Sheet, SheetContent, SheetTitle } from "@ce/components/ui/sheet";
 import { useSidebar } from "@ce/components/ui/sidebar";
-import { isPortalRouteActive, enabledPortalNavItems, utilityNavItems } from "@ce/lib/portalNav";
+import { isPortalRouteActive, enabledPortalNavItems, utilityNavItems, type PortalNavItem } from "@ce/lib/portalNav";
+import { portalLocationFor } from "@ce/lib/portalLocation";
 import { apiUrl } from "@ce/utils/runtimeBase";
 
 const emit = defineEmits<{
@@ -64,6 +65,12 @@ const portalItems = computed(() => {
 });
 
 const settingsItem = computed(() => utilityNavItems.find((item) => item.name === "settings"));
+
+// 导航位置记忆(SSOT 读点): rail 点击目标优先取该 portal 记住的最近深路径(选中的
+// ws/session/project), 无记忆(首次访问)才落回静态 entry path。
+function navTarget(item: PortalNavItem): string {
+  return (item.portal ? portalLocationFor(item.portal) : undefined) ?? item.path;
+}
 
 function ensureRequiredPortals(portals: string[]): string[] {
   const merged = [...portals];
@@ -138,7 +145,7 @@ function handleNavigate() {
           :is="item.external ? 'a' : 'router-link'"
           v-for="item in portalItems"
           :key="item.name"
-          v-bind="item.external ? { href: item.path } : { to: item.path }"
+          v-bind="item.external ? { href: item.path } : { to: navTarget(item) }"
           class="dw-rb"
           :class="{ on: isPortalRouteActive(route.path, item) }"
           :data-tip="item.label"
@@ -186,7 +193,7 @@ function handleNavigate() {
       :is="item.external ? 'a' : 'router-link'"
       v-for="item in portalItems"
       :key="item.name"
-      v-bind="item.external ? { href: item.path } : { to: item.path }"
+      v-bind="item.external ? { href: item.path } : { to: navTarget(item) }"
       class="dw-rb"
       :class="{ on: isPortalRouteActive(route.path, item) }"
       :data-tip="item.label"
