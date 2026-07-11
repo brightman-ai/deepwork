@@ -146,6 +146,21 @@
       <button type="button" class="as-pane__error-close" aria-label="关闭" @click="emit('clear-error')">×</button>
     </div>
 
+    <!-- ws-ux-r2 C2: quote-inject 选区浮 pill — 流内选中即现, 点击把选中文本以
+         markdown 引用块注入 draft 光标尾。Teleport body: 逃逸 overflow/transform 裁剪。 -->
+    <Teleport to="body">
+      <button
+        v-if="quotePill"
+        type="button"
+        class="as-quote-pill"
+        :style="{ left: quotePill.x + 'px', top: quotePill.y + 'px' }"
+        data-testid="assistant-quote-inject"
+        aria-label="把选中文本引用到输入框"
+        @mousedown.prevent
+        @click="insertQuote"
+      >⌯ 引用到输入</button>
+    </Teleport>
+
     <footer v-if="!readonly" class="as-pane__composer">
       <slot name="composerPrefix" />
       <div v-if="launcherItems.length || composerMeta" class="as-pane__composer-meta">
@@ -170,6 +185,8 @@
           aria-label="消息输入"
           data-testid="assistant-composer-input"
           @input="resizeComposer"
+          @focus="onComposerFocus"
+          @blur="onComposerBlur"
           @keydown.enter.exact.prevent="submit"
         />
         <!-- streaming 态：消费点 opt-in `stoppable` 时显 codex 式可点"■ 停止"→ emit('stop')
@@ -212,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   AssistantBlock,
   AssistantContextItem,
@@ -318,9 +335,13 @@ const emit = defineEmits<{
   (e: 'clear-error'): void
   (e: 'retry'): void
   (e: 'block-action', action: AssistantBlockAction): void
+  // ws-ux-r2 C3: draft 外泄事件 — 消费点可按 session 持久草稿（切会话/切 portal 不丢）。
+  // 未接线的消费点零影响（纯多播）。恢复用既有 expose setDraft。
+  (e: 'update:draft', text: string): void
 }>()
 
 const draft = ref('')
+watch(draft, (v) => emit('update:draft', v))
 const launcherOpen = ref(false)
 const timelineRef = ref<HTMLDivElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -358,6 +379,13 @@ watch(
 
 onMounted(() => {
   resizeComposer()
+  // C2 quote-inject: selectionchange 是 PC 划选 + 移动长按选中的统一信号源。
+  document.addEventListener('selectionchange', onSelectionChange)
+  window.addEventListener('keydown', onQuoteKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', onSelectionChange)
+  window.removeEventListener('keydown', onQuoteKeydown)
 })
 
 // CHG-014-J D2: msg-u rnd chip — the #N round label is the ordinal of this user
@@ -409,10 +437,62 @@ function applyLauncherItem(item: AssistantLauncherItem): void {
   nextTick(() => textareaRef.value?.focus())
 }
 
+// ws-ux-r2 C1: composer 三态（dock→compose）— 移动端聚焦时上限放宽到 38vh（多行草稿
+// 可写），失焦回 dock 上限。关键不变量：展开只改 textarea 自身高度，**不锁流滚动、
+// 不强制贴底**（autoScroll/showScrollButton 既有机制原样）——边滚边写成立。
+const composerFocused = ref(false)
+function composerMaxPx(): number {
+  if (composerFocused.value && typeof window !== 'undefined' && window.innerWidth <= 768) {
+    return Math.round(window.innerHeight * 0.38)
+  }
+  return 180
+}
+function onComposerFocus(): void { composerFocused.value = true; resizeComposer() }
+function onComposerBlur(): void { composerFocused.value = false; resizeComposer() }
+
 function resizeComposer(): void {
   if (!textareaRef.value) return
   textareaRef.value.style.height = 'auto'
-  textareaRef.value.style.height = `${Math.min(textareaRef.value.scrollHeight, 180)}px`
+  textareaRef.value.style.height = `${Math.min(textareaRef.value.scrollHeight, composerMaxPx())}px`
+}
+
+// ws-ux-r2 C2: quote-inject 引用回输 — 流内选中文本 → 选区旁浮 pill「⌯ 引用到输入」→
+// 以 markdown 引用块追加进 draft。多次选中多次注入 = 多段复制不离屏（tmux 做不到的点）。
+// 只读/禁用面不启用；选区塌缩/Escape/点击注入后消失。系统剪贴板行为不受影响（不清选区）。
+const QUOTE_MAX = 4000
+const quotePill = ref<{ x: number; y: number; text: string } | null>(null)
+function onSelectionChange(): void {
+  if (props.readonly || props.disabled) { quotePill.value = null; return }
+  const sel = typeof window !== 'undefined' ? window.getSelection() : null
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) { quotePill.value = null; return }
+  const tl = timelineRef.value
+  if (!tl) { quotePill.value = null; return }
+  const range = sel.getRangeAt(0)
+  // 选区必须落在本 surface 的时间线内（别的 surface/页面区域的选中不弹）。
+  const node = range.commonAncestorContainer
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement
+  if (!el || !tl.contains(el)) { quotePill.value = null; return }
+  const text = sel.toString().trim()
+  if (!text) { quotePill.value = null; return }
+  const rect = range.getBoundingClientRect()
+  quotePill.value = {
+    x: Math.max(8, Math.min(rect.left + rect.width / 2, window.innerWidth - 8)),
+    y: Math.max(8, rect.top - 10),
+    text,
+  }
+}
+function insertQuote(): void {
+  const q = quotePill.value
+  if (!q) return
+  let t = q.text
+  if (t.length > QUOTE_MAX) t = `${t.slice(0, QUOTE_MAX)}…`
+  const quoted = t.split('\n').map((l) => `> ${l}`).join('\n')
+  draft.value = draft.value.trim().length ? `${draft.value.replace(/\n?$/, '\n')}${quoted}\n` : `${quoted}\n`
+  quotePill.value = null
+  nextTick(() => { resizeComposer(); textareaRef.value?.focus() })
+}
+function onQuoteKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && quotePill.value) quotePill.value = null
 }
 
 function isNearBottom(): boolean {
@@ -437,10 +517,12 @@ async function scrollToBottom(force = false): Promise<void> {
 }
 
 defineExpose({
-  setDraft(text: string) {
+  // C3: focus 可选（默认 true 保持 qopt 预填行为）— 草稿静默恢复传 false, 免得每次
+  // 切会话移动端都弹键盘。
+  setDraft(text: string, focus = true) {
     draft.value = text
     resizeComposer()
-    nextTick(() => textareaRef.value?.focus())
+    if (focus) nextTick(() => textareaRef.value?.focus())
   },
   focus() {
     textareaRef.value?.focus()
@@ -1070,4 +1152,17 @@ function renderMarkdown(value: unknown): string {
   0%, 100% { opacity: 0.55; transform: scale(0.9); }
   50% { opacity: 1; transform: scale(1.12); }
 }
+
+/* ws-ux-r2 C2: quote-inject 选区浮 pill — 选区上方居中, accent 底, 触摸友好高度。
+   fixed + translate(-50%,-100%) 锚选区顶中点; z 高于抽屉/sheet (61) 之上。 */
+.as-quote-pill {
+  position: fixed; z-index: 70; transform: translate(-50%, -100%);
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 32px; padding: 5px 12px; border-radius: 999px;
+  border: 1px solid var(--dw-ac); background: var(--dw-sf);
+  color: var(--dw-ac); font-size: 12px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.as-quote-pill:active { background: var(--dw-ac-dim); }
 </style>
