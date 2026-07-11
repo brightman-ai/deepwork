@@ -163,7 +163,12 @@
 
     <footer v-if="!readonly" class="as-pane__composer">
       <slot name="composerPrefix" />
-      <div v-if="launcherItems.length || composerMeta" class="as-pane__composer-meta">
+      <!-- ws-ux-r3 R2-3 / codex-review-r1 #16: composerMeta 移动端不占行 was made a
+           BLANKET rule for every Surface consumer, but only the workspace consumer's
+           placeholder actually restates the same info — Claw/Topic pass their OWN
+           meaningful metadata that has no mobile substitute. `composerMetaHideMobile`
+           (default false) makes the suppression opt-in; only the ws consumer sets it. -->
+      <div v-if="launcherItems.length || showComposerMeta" class="as-pane__composer-meta">
         <button
           v-if="launcherItems.length"
           type="button"
@@ -172,9 +177,48 @@
         >
           +
         </button>
-        <span v-if="composerMeta">{{ composerMeta }}</span>
+        <span v-if="showComposerMeta">{{ composerMeta }}</span>
+      </div>
+      <!-- ws-ux-r3 R1: 附件 chip 行 (仅 allowAttach 且有附件时出现 — 零附件零占位)。 -->
+      <div v-if="allowAttach && attachments.length" class="as-attach" data-testid="assistant-attachments">
+        <span
+          v-for="a in attachments"
+          :key="a.id"
+          class="as-attach__chip"
+          :class="{ 'is-error': a.status === 'error', 'is-uploading': a.status === 'uploading' }"
+          :title="a.error || a.name"
+        >
+          <img v-if="a.previewUrl" class="as-attach__thumb" :src="a.previewUrl" alt="" />
+          <span v-else aria-hidden="true">🖼</span>
+          <span class="as-attach__name">{{ a.name }}</span>
+          <span v-if="a.status === 'uploading'" class="as-attach__spin" aria-label="上传中" />
+          <button
+            type="button"
+            class="as-attach__x"
+            :aria-label="`移除 ${a.name}`"
+            @click="emit('attach-remove', a.id)"
+          >×</button>
+        </span>
       </div>
       <div class="as-composer">
+        <button
+          v-if="allowAttach"
+          type="button"
+          class="as-composer__attach"
+          title="添加图片（或直接粘贴截图）"
+          aria-label="添加图片"
+          data-testid="assistant-composer-attach"
+          @click="attachInputRef?.click()"
+        >📎</button>
+        <input
+          v-if="allowAttach"
+          ref="attachInputRef"
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          @change="onAttachPick"
+        />
         <textarea
           ref="textareaRef"
           v-model="draft"
@@ -187,6 +231,7 @@
           @input="resizeComposer"
           @focus="onComposerFocus"
           @blur="onComposerBlur"
+          @paste="onComposerPaste"
           @keydown.enter.exact.prevent="submit"
         />
         <!-- streaming 态：消费点 opt-in `stoppable` 时显 codex 式可点"■ 停止"→ emit('stop')
@@ -238,6 +283,7 @@ import type {
   AssistantMessage,
 } from './types'
 import { blockRegistry } from './blockRegistry'
+import type { ComposerAttachment } from './primitives/ComposerShell.vue'
 import {
   ThinkingBlock,
   ToolGroupBlock,
@@ -262,6 +308,11 @@ const props = withDefaults(defineProps<{
   emptyHint?: string
   placeholder?: string
   composerMeta?: string
+  // codex-review-r1 #16: opt-in mobile suppression for composerMeta. Default false =
+  // every consumer keeps its historical "always show composerMeta" behavior (Claw/
+  // Topic/od/chat). The workspace consumer's placeholder already restates the same
+  // info on narrow viewports, so IT alone passes true to avoid the redundant row.
+  composerMetaHideMobile?: boolean
   sendLabel?: string
   streaming?: boolean
   streamingContent?: string
@@ -285,6 +336,11 @@ const props = withDefaults(defineProps<{
   // 置 true，streaming 态 textarea 不再锁死、Enter 走 steer 而非新轮 send。默认 false：
   // 未接线的消费点保留旧行为（streaming 时禁用输入，同 canSend 语义）。
   steerable?: boolean
+  // ws-ux-r3 R1: 附件位（与 ComposerShell 同款最小契约, 壳零智能）。消费点接线了
+  // @attach-files（上传/校验/状态归装配方 composable）→ 置 true 才渲染 📎 + chip 行
+  // + 粘贴图拦截。默认 false：零渲染零成本。
+  allowAttach?: boolean
+  attachments?: ComposerAttachment[]
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -298,6 +354,7 @@ const props = withDefaults(defineProps<{
   emptyHint: '输入问题，AI 会在这里展示过程和结果。',
   placeholder: '输入消息...',
   composerMeta: '',
+  composerMetaHideMobile: false,
   sendLabel: '发送',
   streaming: false,
   streamingContent: '',
@@ -313,6 +370,8 @@ const props = withDefaults(defineProps<{
   userBubbleTotal: 0,
   stoppable: false,
   steerable: false,
+  allowAttach: false,
+  attachments: () => [],
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -338,9 +397,66 @@ const emit = defineEmits<{
   // ws-ux-r2 C3: draft 外泄事件 — 消费点可按 session 持久草稿（切会话/切 portal 不丢）。
   // 未接线的消费点零影响（纯多播）。恢复用既有 expose setDraft。
   (e: 'update:draft', text: string): void
+  // ws-ux-r3 R1: 附件事件（壳只转发 File[], 上传/校验归装配方）。
+  (e: 'attach-files', files: File[]): void
+  (e: 'attach-remove', id: string): void
 }>()
 
 const draft = ref('')
+
+// ws-ux-r3 R1: 附件拾取/粘贴 — 壳只转发 File[]，上传归装配方。
+const attachInputRef = ref<HTMLInputElement | null>(null)
+function onAttachPick(e: Event): void {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) emit('attach-files', files)
+  input.value = '' // 允许再次选择同一文件
+}
+function onComposerPaste(e: ClipboardEvent): void {
+  if (!props.allowAttach) return
+  const items = Array.from(e.clipboardData?.items ?? [])
+  const files = items
+    .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter((f): f is File => !!f)
+  if (!files.length) return // 文本粘贴不拦
+  e.preventDefault()
+  emit('attach-files', files)
+  // codex-review-r1 #17: a mixed clipboard payload (image + text — e.g. a screenshot
+  // copied alongside a caption) previously lost the text entirely, because
+  // preventDefault() also suppresses the browser's native paste-insert. Manually splice
+  // the text/plain payload in at the caret so neither the image nor the text is dropped.
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  if (text) insertTextAtCaret(text)
+}
+
+// codex-review-r1 #17: insert text at the current caret (or append if the textarea/
+// selection isn't available), mirroring what the browser's default paste would have
+// done had preventDefault() not been required for the image branch above.
+function insertTextAtCaret(text: string): void {
+  const el = textareaRef.value
+  if (!el) { draft.value += text; return }
+  const start = el.selectionStart ?? draft.value.length
+  const end = el.selectionEnd ?? draft.value.length
+  draft.value = draft.value.slice(0, start) + text + draft.value.slice(end)
+  const caret = start + text.length
+  nextTick(() => {
+    resizeComposer()
+    el.selectionStart = el.selectionEnd = caret
+  })
+}
+
+// ws-ux-r3 R2-3: 移动视口信号（composerMeta 不占行）。matchMedia 监听, SSR 安全。
+const isNarrowViewport = ref(false)
+let narrowMq: MediaQueryList | null = null
+function onNarrowMq(e: MediaQueryListEvent | MediaQueryList): void { isNarrowViewport.value = e.matches }
+onMounted(() => {
+  if (typeof window === 'undefined' || !window.matchMedia) return
+  narrowMq = window.matchMedia('(max-width: 768px)')
+  onNarrowMq(narrowMq)
+  narrowMq.addEventListener('change', onNarrowMq)
+})
+onBeforeUnmount(() => { narrowMq?.removeEventListener('change', onNarrowMq) })
 watch(draft, (v) => emit('update:draft', v))
 const launcherOpen = ref(false)
 const timelineRef = ref<HTMLDivElement | null>(null)
@@ -351,6 +467,11 @@ const showScrollButton = ref(false)
 const contextItems = computed(() => props.contextItems ?? [])
 const launcherItems = computed(() => props.launcherItems ?? [])
 const canSend = computed(() => !props.disabled && !props.streaming && draft.value.trim().length > 0)
+// codex-review-r1 #16: composerMeta shows unless THIS consumer opted into mobile
+// suppression (composerMetaHideMobile) AND the viewport is actually narrow.
+const showComposerMeta = computed(() =>
+  !!props.composerMeta && (!props.composerMetaHideMobile || !isNarrowViewport.value),
+)
 // steerable + streaming 态：placeholder 提示 Enter 走 steer（插入运行轮），而非常规发送。
 const effectivePlaceholder = computed(() =>
   props.streaming && props.steerable
@@ -366,9 +487,18 @@ const hasLiveAssistantMessage = computed(() => {
   )
 })
 
+// ws-ux-r3 W5 (切回落最新): 首批消息落地 = 强制置底一次。旧逻辑只有"近底才跟"——大
+// transcript 分块渲染时首帧就超出视口 → nearBottom 永假 → 进会话停在中途旧楼层
+// (移动实测 #4/12, PC 偶合命中)。仅首次强制; 此后仍是"近底才跟"(上滚阅读不被打断)。
+// 组件按 session :key 重挂 → "落最新"天然 per-session。
+let initialScrolled = false
 watch(
   () => [props.messages.length, props.streamingContent, props.streaming] as const,
-  () => nextTick(() => scrollToBottom(false)),
+  () => {
+    const force = !initialScrolled && props.messages.length > 0
+    if (force) initialScrolled = true
+    nextTick(() => void scrollToBottom(force))
+  },
 )
 
 watch(
@@ -424,6 +554,9 @@ function submit(): void {
     return
   }
   if (!canSend.value) return
+  // ws-ux-r3 W5: 发送 = 用户显式要看自己的新 turn — 强制跟底, 不受"仅近底才跟"
+  // 保护(那是给流式期上滚阅读用的)。修"发了但视口停在旧楼层, 像没反应"(WA-2)。
+  nextTick(() => void scrollToBottom(true))
   draft.value = ''
   launcherOpen.value = false
   resizeComposer()
@@ -1070,6 +1203,46 @@ function renderMarkdown(value: unknown): string {
   display: grid;
   gap: 7px;
   margin-top: 8px;
+}
+
+/* ws-ux-r3 R1: 附件 chip 行 + 📎。紧凑 ≤32px, 移动横向滚不换行。 */
+.as-attach {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px; overflow-x: auto; scrollbar-width: none;
+}
+.as-attach::-webkit-scrollbar { display: none; }
+.as-attach__chip {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  height: 28px; padding: 0 6px; border-radius: 7px;
+  border: 1px solid var(--dw-bd); background: var(--dw-sf2);
+  font-size: 11px; color: var(--dw-fg); max-width: 190px;
+}
+.as-attach__chip.is-error { border-color: var(--dw-red, #e5484d); color: var(--dw-red, #e5484d); }
+.as-attach__chip.is-uploading { opacity: 0.75; }
+.as-attach__thumb { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; }
+.as-attach__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-attach__spin {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--dw-mu); border-top-color: transparent;
+  animation: as-attach-spin 0.8s linear infinite;
+}
+@keyframes as-attach-spin { to { transform: rotate(360deg); } }
+.as-attach__x {
+  display: inline-grid; place-items: center; width: 18px; height: 18px;
+  margin: -2px -2px -2px 0; padding: 0; border: none; border-radius: 5px;
+  background: none; color: var(--dw-mu); font-size: 13px; cursor: pointer;
+}
+.as-attach__x:hover { color: var(--dw-fg); background: var(--dw-sf3); }
+.as-composer__attach {
+  flex-shrink: 0; width: 34px; height: 34px; align-self: flex-end;
+  border: 1px solid var(--dw-bd); border-radius: 9px; background: none;
+  color: var(--dw-mu); font-size: 15px; cursor: pointer;
+}
+.as-composer__attach:hover { color: var(--dw-fg); border-color: var(--dw-fg); }
+@media (max-width: 768px) {
+  /* 触摸目标 ≥40px（移动 📎/×）。 */
+  .as-composer__attach { width: 40px; height: 40px; }
+  .as-attach__x { width: 24px; height: 24px; }
 }
 
 .as-pane__scroll {
