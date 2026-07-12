@@ -58,9 +58,9 @@
         :data-testid="`assistant-message-${message.role}`"
         :data-round="message.role === 'user' ? userRoundOf(index) : undefined"
       >
-        <div v-if="message.role !== 'user'" class="as-message__avatar" aria-hidden="true">
-          {{ message.role === 'system' ? '!' : 'AI' }}
-        </div>
+        <!-- 头像表示**说话人**，不表示事件。system 消息（后台任务通知、无提问说明）是运行时
+             事件，不是对话参与者 —— 给它头像就是在告诉用户"有人说了句话"，而其实没有。 -->
+        <div v-if="message.role === 'assistant'" class="as-message__avatar" aria-hidden="true">AI</div>
         <div class="as-message__body">
           <UserBubble
             v-if="message.role === 'user'"
