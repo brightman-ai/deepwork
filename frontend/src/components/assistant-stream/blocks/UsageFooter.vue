@@ -2,7 +2,7 @@
 // CHG-014 D2: 重塑到原型 rmeta 轮次 footer (原型 1107)。
 // TTFT△ / 总耗时 / ↓in ↑out / 缓存读 / 模型 / 时间 + hover 动作钮 (⧉⟳⤴⑂)。
 // 数据 ← D5① turns。缺源字段一律显「—」(不省整行，保持栅格稳定)。
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { AssistantMessage, AssistantUsageInfo } from '../types'
 
 const props = withDefaults(defineProps<{
@@ -10,9 +10,30 @@ const props = withDefaults(defineProps<{
   streaming?: boolean
   // F2: 消费点未接 copy/retry/project/branch → 不渲染动作钮（数据诚实，metrics 行照常显示）。
   actionable?: boolean
+  // AgentRun 消费点（WS/share）：移动端 footer 不许占多行。处理耗时已经在 ProcessTrace
+  // 标题上（「已处理 · 7m49s」），这里再占一整行是重复噪音 —— 窄屏只留「tokens · 模型」，
+  // 其余指标收进「详情」（一次点击可见，不是删掉）。其它 portal 不传 → 行为完全不变。
+  compactMobile?: boolean
 }>(), {
   actionable: true,
+  compactMobile: false,
 })
+
+// 窄屏信号（与 Surface 同口径 768px）。SSR 安全。
+const isNarrow = ref(false)
+let mq: MediaQueryList | null = null
+function onMq(e: MediaQueryListEvent | MediaQueryList): void { isNarrow.value = e.matches }
+onMounted(() => {
+  if (typeof window === 'undefined' || !window.matchMedia) return
+  mq = window.matchMedia('(max-width: 768px)')
+  onMq(mq)
+  mq.addEventListener('change', onMq)
+})
+onBeforeUnmount(() => { mq?.removeEventListener('change', onMq) })
+
+// 窄屏且消费点要求紧凑 → 只显主指标；其余走「详情」。
+const compact = computed(() => props.compactMobile && isNarrow.value)
+const detailsOpen = ref(false)
 
 // W1G3: 「总耗时」诚实走动。`Date.now()` is not reactive, so a plain computed froze the
 // streaming elapsed at the value captured on first render (the reported "总耗时 0.0s 全程
@@ -110,7 +131,16 @@ const clock = computed(() => {
 
 <template>
   <div class="v6-rmeta" data-testid="assistant-usage-footer">
-    <span class="v6-rmeta__t">
+    <!-- 窄屏紧凑态：主指标一行（tokens · 模型），其余进「详情」。耗时不重复 —— 它在
+         ProcessTrace 标题上。 -->
+    <span v-if="compact" class="v6-rmeta__t">
+      <span>{{ tokensIO }}</span>
+      <span>{{ model }}</span>
+      <button type="button" class="v6-rmeta__more" :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">
+        {{ detailsOpen ? '收起' : '详情' }}
+      </button>
+    </span>
+    <span v-else class="v6-rmeta__t">
       <span title="TTFT 仅运行时可得">TTFT {{ ttft }}<i class="v6-rmeta__vol">△</i></span>
       <span>总耗时 {{ elapsed }}</span>
       <span>{{ tokensIO }}</span>
@@ -118,11 +148,18 @@ const clock = computed(() => {
       <span>{{ model }}</span>
       <span>{{ clock }}</span>
     </span>
-    <span v-if="props.actionable" class="v6-rmeta__acts">
+    <span v-if="props.actionable && !compact" class="v6-rmeta__acts">
       <button type="button" @click="emit('copy')">⧉ 复制</button>
       <button type="button" @click="emit('retry')">⟳ 重试</button>
       <button type="button" @click="emit('project')">⤴ 投影</button>
       <button type="button" @click="emit('branch')">⑂ 分支</button>
+    </span>
+    <!-- 详情：窄屏收起来的次级指标（可见，不是被删） -->
+    <span v-if="compact && detailsOpen" class="v6-rmeta__details">
+      <span title="TTFT 仅运行时可得">TTFT {{ ttft }}<i class="v6-rmeta__vol">△</i></span>
+      <span>总耗时 {{ elapsed }}</span>
+      <span v-if="hasCacheRead">缓存读 {{ cacheRead }}</span>
+      <span>{{ clock }}</span>
     </span>
   </div>
 </template>
@@ -131,6 +168,7 @@ const clock = computed(() => {
 .v6-rmeta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   margin-top: 8px;
   font-family: var(--dw-mono);
   font-size: 10.5px;
@@ -167,4 +205,29 @@ const clock = computed(() => {
   cursor: pointer;
 }
 .v6-rmeta__acts button:hover { background: var(--dw-sf2); color: var(--dw-fg); }
+
+/* 窄屏「详情」开关 + 次级指标行 */
+.v6-rmeta__more {
+  margin-left: 8px;
+  padding: 2px 8px;
+  min-height: 24px;
+  border: 1px solid var(--dw-bd);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dw-mu);
+  font-family: var(--dw-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.v6-rmeta__more::before { content: none !important; }
+.v6-rmeta__details {
+  flex-basis: 100%;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+.v6-rmeta__details span + span::before {
+  content: '·';
+  margin: 0 6px;
+  opacity: 0.45;
+}
 </style>

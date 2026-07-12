@@ -8,6 +8,10 @@ type BlockKind = 'text' | 'thinking' | 'tool-group' | 'task-plan' | 'permission'
   | 'agent'
   // CHG-014 P3b: task-notification 系统事件块 (核心, 后台任务/agent 完成的紧凑通知卡)。
   | 'task-notification'
+  // AgentRun/ProcessTrace: runtime 上下文自动压缩 (codex context_compacted) — 过程段的一环。
+  | 'compaction'
+  // AgentRun: 无人提问的轮 → 说明触发来源 (后台任务/非交互运行/续接)，不留白。
+  | 'run-origin'
 
 // CHG-014 S8 F4: 保留 core kind 清单（文档化策略）。这些 type 是 @ce 基座保留字，
 // 由 registerCore 占用、不可被 registerExtension override（existing.core 守卫会拒绝）。
@@ -15,7 +19,8 @@ type BlockKind = 'text' | 'thinking' | 'tool-group' | 'task-plan' | 'permission'
 // 不得复用这些名字。已核对 pro registerOdBlocks.ts 无冲突。
 export const RESERVED_CORE_KINDS = [
   'text', 'thinking', 'tool-group', 'task-plan', 'permission', 'waiting', 'error', 'usage',
-  'strip', 'live-head', 'artifact', 'qbanner', 'diff', 'agent', 'task-notification',
+  'strip', 'live-head', 'artifact', 'qbanner', 'diff', 'agent', 'task-notification', 'compaction',
+  'run-origin',
 ] as const
 
 interface BlockRegistryEntry {
@@ -80,6 +85,10 @@ import DiffBlock from './blocks/DiffBlock.vue'
 import AgentBlock from './blocks/AgentBlock.vue'
 // CHG-014 P3b: task-notification 系统事件块
 import TaskNotificationBlock from './blocks/TaskNotificationBlock.vue'
+// AgentRun: 上下文压缩段 (ProcessTrace 内可见, 展开时不可丢 — 它是因果链的一环)
+import CompactionBlock from './blocks/CompactionBlock.vue'
+// AgentRun: 无人提问的轮的来源说明
+import RunOriginBlock from './blocks/RunOriginBlock.vue'
 
 blockRegistry.registerCore('text', TextBlock)
 blockRegistry.registerCore('thinking', ThinkingBlock)
@@ -100,3 +109,5 @@ blockRegistry.registerCore('diff', DiffBlock)
 blockRegistry.registerCore('agent', AgentBlock)
 // CHG-014 P3b: task-notification (后台任务/agent 完成 → 紧凑系统事件卡, 非满宽气泡)
 blockRegistry.registerCore('task-notification', TaskNotificationBlock)
+blockRegistry.registerCore('compaction', CompactionBlock)
+blockRegistry.registerCore('run-origin', RunOriginBlock)

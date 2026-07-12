@@ -36,8 +36,9 @@ const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
+  min-width: 0; /* flex 子项默认 min-width:auto → 长串会把整条时间线撑出横滚 */
 }
-.v6-msg-u__col { max-width: 78%; }
+.v6-msg-u__col { max-width: 78%; min-width: 0; }
 .v6-bub {
   background: var(--dw-sf3);
   border-radius: var(--dw-r3);
@@ -46,6 +47,10 @@ const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
   line-height: 1.6;
   color: var(--dw-fg);
   white-space: pre-wrap;
+  /* 粘贴进来的长 URL / 代码 / 无空格串必须硬折：实测一条用户消息把 timeline 的
+     scrollWidth 顶到 2386px(视口 1821) → 整个会话横向滚动。 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .v6-rnd {
   display: flex;

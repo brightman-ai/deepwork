@@ -167,6 +167,20 @@ export interface AssistantTaskNotificationBlock {
   at?: string                  // ISO 时刻 (右对齐 mono)
 }
 
+// AgentRun: runtime 自动上下文压缩（codex `context_compacted`）。它是这一轮因果链的一环
+// （此后 agent 看不到更早的上下文），必须能在展开的 ProcessTrace 里被看到；但它不是对话轮。
+export interface AssistantCompactionBlock {
+  type: 'compaction'
+  text?: string
+}
+
+// 「本轮为何没有人提问」的显式说明（后台任务触发 / 非交互运行 / 续接自更早记录）。
+// 无头 AI 回合不许留白让用户猜（见证实录：「我一开始以为是没加载出来」）。
+export interface AssistantRunOriginBlock {
+  type: 'run-origin'
+  text: string
+}
+
 export type AssistantBlock =
   | { type: 'text'; content: string }
   | { type: 'waiting'; status: string; startedAt?: number }
@@ -186,6 +200,8 @@ export type AssistantBlock =
   | AssistantDiffBlock
   | AssistantAgentBlock
   | AssistantTaskNotificationBlock
+  | AssistantCompactionBlock
+  | AssistantRunOriginBlock
   | AssistantExtensionBlock
 
 export interface AssistantMessage {
@@ -207,7 +223,16 @@ export interface AssistantMessage {
   versionCount?: number       // 总版本数 (>1 才显示切换)
   // owner 对称 steer: 该用户气泡是"运行中插入本轮"的补充(useWorkstreamController.steer 乐观上屏)。
   // UserBubble 据此显「↩ 已插入本轮」意符, 与普通轮视觉区分(设计心理学: 可视清晰/事后可辨)。
+  // 不变量: steered 气泡**不计入 round 数** —— 它是本轮的补充指令, 不是新的一轮意图。
   steered?: boolean
+  // AgentRun 终态（kit AgentRun.status 的镜像；live 期为 undefined = 仍在跑）。
+  // 只有它能让「没有最终答案」被诚实解释（已停止 / 执行失败 / 未完成），
+  // 而不是渲染一个空正文或假装完成。
+  runStatus?: 'completed' | 'interrupted' | 'error' | 'unterminated'
+  // AgentRun 的**最终答案**（后端领域事实：runtime 让出控制权那次迭代的文本）。
+  // 与 blocks(过程) 分离 → 折叠过程永远不可能把答案藏掉。
+  // 存在（哪怕空数组）= 装配方已给出权威分离；缺失 = live 流，由 splitRun 按位置兜底。
+  finalBlocks?: AssistantBlock[]
 }
 
 export interface AssistantLauncherItem {

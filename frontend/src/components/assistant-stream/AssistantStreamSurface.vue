@@ -72,23 +72,59 @@
             @nav="(dir) => emit('block-action', { action: 'user-nav', block: message, message, index, payload: { dir } })"
           />
           <template v-else>
-            <template
-              v-for="(block, blockIndex) in blocksForMessage(message)"
-              :key="`${message.id}-${blockIndex}`"
-            >
-              <div
-                v-if="block.type === 'text'"
-                class="as-block as-block--text"
-                v-html="renderMarkdown(block.content)"
-              />
-              <component
-                :is="resolveBlockComponent(block.type)"
-                v-else
-                :block="block"
-                :streaming="message.streaming || (streaming && index === messages.length - 1)"
+            <!-- AgentRun 投影 (processTrace 消费点)：过程收进可逆 ProcessTrace，最终答案留在
+                 容器外的主层。一个 run 只有一个头像 / 一个外壳 / 一个 footer —— 不再每个
+                 runtime event 一个「对话轮」。未开启的消费点 (chat/OD/browser/topic) 走
+                 原来的平铺路径，产品 IA 不被本变更重排。 -->
+            <!-- ProcessTrace 只包 assistant 的**过程**。system 事件（后台任务通知、无提问
+                 说明）必须平铺 —— 把它们也塞进可折叠容器等于把"为什么没人提问"的解释又藏
+                 起来了（第一版就这么翻车的）。
+                 注意条件的层次：trace 是**可选**的（有过程才有容器），但最终答复和诚实状态行
+                 **永远**要渲染 —— 否则"零过程零答复"的轮又退化成一个光头像加一行指标。 -->
+            <template v-if="processTrace && message.role === 'assistant'">
+              <ProcessTrace
+                v-if="runSplitOf(message).trace.length"
+                :segments="runSplitOf(message).trace"
+                :streaming="isLive(message, index)"
+                :attention="runSplitOf(message).attention"
+                :elapsed-ms="message.elapsed_ms"
+                :started-at-ms="message.started_at_ms"
+                :follow="autoScroll"
                 :actionable="blockActionable"
-                v-on="blockActionHandlers(block, message, index)"
+                @block-action="(p) => emit('block-action', { action: p.action, block: p.block, message, index })"
               />
+              <div
+                v-for="(block, blockIndex) in runSplitOf(message).final"
+                :key="`${message.id}-final-${blockIndex}`"
+                class="as-block as-block--text as-block--final"
+                data-testid="assistant-final-answer"
+                v-html="renderMarkdown(textOf(block))"
+              />
+              <!-- 无最终答案时诚实说明「为什么没有」，绝不渲染空正文、绝不假装完成。 -->
+              <div v-if="terminalNoticeOf(message)" class="as-terminal" data-testid="assistant-terminal-notice">
+                {{ terminalNoticeOf(message) }}
+              </div>
+            </template>
+            <template v-else>
+              <template
+                v-for="(block, blockIndex) in blocksForMessage(message)"
+              >
+                <div
+                  v-if="block.type === 'text'"
+                  :key="`${message.id}-${blockIndex}`"
+                  class="as-block as-block--text"
+                  v-html="renderMarkdown(block.content)"
+                />
+                <component
+                  :is="resolveBlockComponent(block.type)"
+                  v-else
+                  :key="`${message.id}-${blockIndex}`"
+                  :block="block"
+                  :streaming="message.streaming || (streaming && index === messages.length - 1)"
+                  :actionable="blockActionable"
+                  v-on="blockActionHandlers(block, message, index)"
+                />
+              </template>
             </template>
             <slot
               v-if="message.role === 'assistant'"
@@ -101,6 +137,7 @@
               :message="message"
               :streaming="message.streaming || (streaming && index === messages.length - 1)"
               :actionable="blockActionable"
+              :compact-mobile="processTrace"
               v-on="blockActionHandlers({ type: 'usage' } as unknown as AssistantBlock, message, index)"
             />
           </template>
@@ -123,14 +160,17 @@
         </div>
       </div>
 
+      <!-- 上滑读历史时不再强制跟随；新内容到了就在这儿告诉他有多少，回不回去他说了算。 -->
       <button
         v-if="showScrollButton"
         type="button"
         class="as-pane__scroll"
+        :class="{ 'as-pane__scroll--counted': pendingUpdates > 0 }"
         data-testid="assistant-scroll-bottom"
         @click="scrollToBottom(true)"
       >
-        ↓
+        <span aria-hidden="true">↓</span>
+        <span v-if="pendingUpdates > 0" class="as-pane__scroll-label">回到最新 · {{ pendingUpdates }} 条更新</span>
       </button>
     </div>
 
@@ -283,6 +323,8 @@ import type {
   AssistantMessage,
 } from './types'
 import { blockRegistry } from './blockRegistry'
+import ProcessTrace from './ProcessTrace.vue'
+import { splitRun, terminalNotice, type RunSplit } from './runSplit'
 import type { ComposerAttachment } from './primitives/ComposerShell.vue'
 import {
   ThinkingBlock,
@@ -341,6 +383,10 @@ const props = withDefaults(defineProps<{
   // + 粘贴图拦截。默认 false：零渲染零成本。
   allowAttach?: boolean
   attachments?: ComposerAttachment[]
+  // AgentRun 投影：把一次回应渲染成 [可逆 ProcessTrace(过程) + FinalAnswer(结果)]。
+  // 默认 false —— chat/OD/browser/topic 保留各自的产品 IA（本变更的显式非目标）；
+  // WS(live/replay) 与 share 只读投影置 true，三者因此共用同一投影语义，不会漂移。
+  processTrace?: boolean
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -372,6 +418,7 @@ const props = withDefaults(defineProps<{
   steerable: false,
   allowAttach: false,
   attachments: () => [],
+  processTrace: false,
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -521,16 +568,69 @@ onBeforeUnmount(() => {
 // CHG-014-J D2: msg-u rnd chip — the #N round label is the ordinal of this user
 // message within the timeline (1-based count of user roles up to `index`). Pure
 // presentational derivation from the message list; no new data dependency.
-function userRoundOf(index: number): number {
+//
+// AgentRun 不变量: **steered 气泡不计入 round 数** —— 运行中插入的补充指令是本轮的
+// amendment, 不是新一轮意图。少了这一条, 一次 steer 就会把 RoundNav 的 #N/total 顶高一格,
+// 和后端按 AgentRun 数出来的轮次对不上。
+//
+// 一次 O(n) 预算 (而不是每条消息各自从头扫 → O(n²): 千事件会话上那是实打实的卡顿)。
+const roundByIndex = computed<number[]>(() => {
+  const out: number[] = []
   let n = 0
-  for (let i = 0; i <= index && i < props.messages.length; i++) {
-    if (props.messages[i].role === 'user') n++
+  for (const m of props.messages) {
+    if (m.role === 'user' && !m.steered) n++
+    out.push(n)
   }
-  return n
+  return out
+})
+function userRoundOf(index: number): number {
+  return roundByIndex.value[index] ?? 0
 }
 
+// AgentRun 投影缓存: splitRun 是纯函数, 但模板里每条消息要读三次 (trace/final/attention),
+// 每次重渲染重算会白跑。按 (块数, 流式态, 是否已给权威 final) 记忆化 —— 流式期 blocks 是
+// push 进同一数组, 故块数参与 key 才能让增量刷新。
+const splitCache = new Map<string, { key: string; split: RunSplit }>()
+function runSplitOf(message: AssistantMessage): RunSplit {
+  // 装配方已把结果与过程分开（finalBlocks 存在）→ trace 只能是过程块。走 blocksForMessage
+  // 会把它的平铺兜底（过程+结果拼接）当成过程，答案就会在 trace 里重复出现一遍。
+  const blocks = message.finalBlocks !== undefined ? (message.blocks ?? []) : blocksForMessage(message)
+  const key = `${blocks.length}:${message.streaming ? 1 : 0}:${message.finalBlocks?.length ?? -1}`
+  const hit = splitCache.get(message.id)
+  if (hit && hit.key === key) return hit.split
+  const split = splitRun(message, blocks)
+  splitCache.set(message.id, { key, split })
+  return split
+}
+function isLive(message: AssistantMessage, index: number): boolean {
+  return Boolean(message.streaming || (props.streaming && index === props.messages.length - 1))
+}
+function terminalNoticeOf(message: AssistantMessage): string | null {
+  return terminalNotice(message, runSplitOf(message))
+}
+// 取文本块正文（AssistantBlock 是开放 union；模板里拿不到窄化，helper 里做）。
+function textOf(block: AssistantBlock): string {
+  const c = (block as { content?: unknown }).content
+  return typeof c === 'string' ? c : ''
+}
+
+// 上滑读历史时的「回到最新 · N 条更新」: N = 离底之后新增的消息数 (回到底即清零)。
+const pendingUpdates = ref(0)
+const detachedAtLen = ref(0)
+watch(
+  () => props.messages.length,
+  (len) => {
+    if (!autoScroll.value) pendingUpdates.value = Math.max(0, len - detachedAtLen.value)
+  },
+)
+
 function blocksForMessage(message: AssistantMessage): AssistantBlock[] {
-  if (message.blocks?.length) return message.blocks
+  // finalBlocks 是与 blocks(过程) 分离的结果层。没开 processTrace 的消费点走平铺路径 ——
+  // 那里也必须能看到答案，否则一个消费点忘了传 flag，用户就只剩过程、没有结论（丢答案比
+  // 排版难看严重得多，所以在壳里兜底，而不是指望每个消费点都记得）。
+  if (message.blocks?.length || message.finalBlocks?.length) {
+    return [...(message.blocks ?? []), ...(message.finalBlocks ?? [])]
+  }
   if (message.status === 'failed' && message.error) return [{ type: 'error', message: message.error }]
   if (message.content) return [{ type: 'text', content: message.content }]
   return []
@@ -635,8 +735,15 @@ function isNearBottom(): boolean {
 }
 
 function handleScroll(): void {
-  autoScroll.value = isNearBottom()
-  showScrollButton.value = !autoScroll.value
+  const near = isNearBottom()
+  if (!near && autoScroll.value) {
+    // 刚离开流尾 → 从这一刻开始数「新增了多少」。
+    detachedAtLen.value = props.messages.length
+    pendingUpdates.value = 0
+  }
+  autoScroll.value = near
+  showScrollButton.value = !near
+  if (near) pendingUpdates.value = 0
 }
 
 async function scrollToBottom(force = false): Promise<void> {
@@ -647,6 +754,7 @@ async function scrollToBottom(force = false): Promise<void> {
   el.scrollTop = el.scrollHeight
   autoScroll.value = true
   showScrollButton.value = false
+  pendingUpdates.value = 0
 }
 
 defineExpose({
@@ -930,6 +1038,13 @@ function renderMarkdown(value: unknown): string {
 .as-block--text {
   line-height: 1.62;
   overflow-wrap: anywhere;
+}
+
+/* 最终答复 = 结论层：比过程叙述（12.5px/muted）更大更亮。视觉层级必须等于语义层级，
+   否则展开过程后，"我在想什么" 和 "我的结论是" 糊成一片（独立见证者实测抱怨）。 */
+.as-block--final {
+  font-size: 14px;
+  color: var(--dw-fg);
 }
 
 .as-block--waiting,
@@ -1257,6 +1372,34 @@ function renderMarkdown(value: unknown): string {
   color: var(--dw-ac);
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+/* 有新内容时长成一颗带文案的胶囊：不打断阅读，但让「后面有更新」可被发现。 */
+.as-pane__scroll--counted {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border-color: var(--dw-ac);
+  font-size: 12px;
+  font-weight: 600;
+}
+.as-pane__scroll-label { white-space: nowrap; }
+
+/* 没有最终答案时的诚实状态行（已停止 / 执行失败 / 未完成 / 等待输入）。
+   它替代了「空 AI 正文」这种假完成。 */
+.as-terminal {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 3px 9px;
+  border: 1px dashed var(--dw-bd);
+  border-radius: 999px;
+  color: var(--dw-mu);
+  font-size: 12px;
 }
 
 /* Density spectrum (CHG-013 D8): full (default sizing above) ⊃ chat ⊃ compact.
