@@ -22,7 +22,8 @@ export interface RunSplit {
 const ATTENTION_KINDS = new Set(['permission', 'error', 'waiting'])
 
 // 没有答案的终态：这类轮的尾部文本是"过程叙述"，不是答案（位置规则的反例①）。
-const NO_ANSWER_STATUS = new Set(['interrupted', 'error', 'unterminated'])
+// running 不在此列 —— 它还在跑，尾部文本是正在生成的答复。
+const NO_ANSWER_STATUS = new Set(['interrupted', 'error', 'abandoned', 'stalled'])
 
 export function splitRun(msg: AssistantMessage, blocks: AssistantBlock[]): RunSplit {
   const attentionOf = (bs: AssistantBlock[]) => bs.some((b) => ATTENTION_KINDS.has(b.type))
@@ -43,16 +44,21 @@ export function splitRun(msg: AssistantMessage, blocks: AssistantBlock[]): RunSp
 }
 
 // run 终态（kit AgentRun.status 的镜像；live 期为空 = 仍在跑）。
-export type AssistantRunStatus = 'completed' | 'interrupted' | 'error' | 'unterminated'
+export type AssistantRunStatus = 'completed' | 'interrupted' | 'error' | 'running' | 'stalled' | 'abandoned'
 
 // 没有最终答案时该说什么 —— 诚实降级：不渲染空正文，也不假装「完成」。
 // null = 有答案（或仍在跑），无需状态行。
 export function terminalNotice(msg: AssistantMessage, split: RunSplit): string | null {
-  if (msg.streaming || split.final.length > 0) return null
+  // 还在跑 → 没有"终态"可言。给一个正在工作的会话盖上「未完成」的章，是把活的说成死的。
+  if (msg.streaming || msg.runStatus === 'running' || split.final.length > 0) return null
   switch (msg.runStatus) {
     case 'interrupted': return '已停止'
     case 'error': return '执行失败'
-    case 'unterminated': return '未完成（会话中断，无最终答复）'
+    // 工具发出去了、结果从没回来，而 transcript 也停止更新了。它可能在跑一条长命令、可能
+    // 卡在 CLI 的审批提示上、也可能死了 —— 我们**区分不出来**，那就照实说，别替用户下结论。
+    case 'stalled': return '工具执行中或已中断（结果未返回，暂无更新）'
+    // 没有终止事件、没有待完成的工具、也没人在写这个文件 —— 这才是真的断了。
+    case 'abandoned': return '未完成（会话已中断，无最终答复）'
     // 真实数据里存在这种轮：runtime 报告 task_complete，但从头到尾没产出答复文本
     // （最后一步是工具调用/用户插话就结束了）。此时**必须说出来** —— 否则折叠的过程下面
     // 空空如也，又变回「空 AI 回答」那个病灶，只是换了个壳。

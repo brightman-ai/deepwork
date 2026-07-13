@@ -228,7 +228,7 @@ export interface AssistantMessage {
   // AgentRun 终态（kit AgentRun.status 的镜像；live 期为 undefined = 仍在跑）。
   // 只有它能让「没有最终答案」被诚实解释（已停止 / 执行失败 / 未完成），
   // 而不是渲染一个空正文或假装完成。
-  runStatus?: 'completed' | 'interrupted' | 'error' | 'unterminated'
+  runStatus?: 'completed' | 'interrupted' | 'error' | 'running' | 'stalled' | 'abandoned'
   // AgentRun 的**最终答案**（后端领域事实：runtime 让出控制权那次迭代的文本）。
   // 与 blocks(过程) 分离 → 折叠过程永远不可能把答案藏掉。
   // 存在（哪怕空数组）= 装配方已给出权威分离；缺失 = live 流，由 splitRun 按位置兜底。

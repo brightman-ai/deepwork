@@ -41,7 +41,7 @@ describe('splitRun', () => {
   test('live 无 finalBlocks + runStatus=error/unterminated → 同样 final 为空', () => {
     const blocks = [textBlock('中途文本')]
     expect(splitRun(msg({ runStatus: 'error' }), blocks).final).toEqual([])
-    expect(splitRun(msg({ runStatus: 'unterminated' }), blocks).final).toEqual([])
+    expect(splitRun(msg({ runStatus: 'abandoned' }), blocks).final).toEqual([])
   })
 
   test('③ live 正常 (无 runStatus 或 completed) → 尾部连续 text = final', () => {
@@ -99,10 +99,10 @@ describe('terminalNotice', () => {
     expect(terminalNotice(m, split)).toBe('执行失败')
   })
 
-  test('unterminated → 未完成（会话中断，无最终答复）', () => {
-    const m = msg({ runStatus: 'unterminated' })
+  test('abandoned → 未完成（会话已中断，无最终答复）', () => {
+    const m = msg({ runStatus: 'abandoned' })
     const split = splitRun(m, [textBlock('叙述')])
-    expect(terminalNotice(m, split)).toBe('未完成（会话中断，无最终答复）')
+    expect(terminalNotice(m, split)).toBe('未完成（会话已中断，无最终答复）')
   })
 
   test('有答案 → null (不渲染状态行)', () => {
@@ -169,5 +169,21 @@ describe('terminalNotice — completed with no answer (real codex run #10)', () 
     const msg = { id: 'm', role: 'assistant', runStatus: 'completed' } as never
     const split = { trace: [], final: [{ type: 'text', content: 'done' }], attention: false } as never
     expect(terminalNotice(msg, split)).toBeNull()
+  })
+})
+
+// transcript 是**追加流**不是快照：一个"历史"会话可能正被外部 CLI 写着。给它盖「未完成」
+// 的章 = 把活的说成死的。后端 join 了 liveness 事实（sessionactivity）才区分得出来。
+describe('running（外部 CLI 仍在写这个 transcript）', () => {
+  test('不出终态文案 —— 它还在跑，不是"未完成"', () => {
+    const msg = { id: 'm', role: 'assistant', runStatus: 'running' } as never
+    const split = { trace: [{ type: 'tool-group', tools: [] }], final: [], attention: false } as never
+    expect(terminalNotice(msg, split)).toBeNull()
+  })
+  test('尾部文本仍算正在生成的答复（不像 interrupted 那样被降级为叙述）', () => {
+    const msg = { id: 'm', role: 'assistant', runStatus: 'running' } as never
+    const blocks = [{ type: 'tool-group', tools: [] }, { type: 'text', content: '快好了' }] as never
+    const s = splitRun(msg, blocks)
+    expect(s.final).toHaveLength(1)
   })
 })
