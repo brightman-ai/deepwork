@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+/* JetBrains Mono — 本地自托管, 零外部依赖。
+   原先是 @import url('https://fonts.googleapis.com/css2?...JetBrains+Mono...')：CSS @import 是
+   渲染阻塞的, 且它排在最前 → 实测冷启动被这一个外部请求卡住 1231-3491ms, 期间连路由 chunk
+   (AlbumView 470KB) 都不开始下载; 国内网络下该域名常直接超时, 用户侧表现就是「打开要十几秒」。
+   自托管后这条外部链路整个消失 (证据: perf 剖析 2026-07-13, 生产数据副本 207 节点页)。 */
+@import './fonts/jetbrains-mono.css';
 /* Theme variables SSOT — CHG-014. Edit tokens.css, never inline colors here. */
 @import '../css/tokens.css';
 
