@@ -7,7 +7,7 @@ let xpillSeq = 0
 // CHG-014 D2: 重塑到原型 xpill「已探索」范式 (原型 1094-1101)。
 // xh 头 (已探索 N 文件·M 命令 + chev) → 展开 xb → 嵌套 sbl 工具行
 // (chip ch-read/ch-bash/ch-edit/ch-write + bpath)。family→chip 映射保留。
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import type { AssistantBlock, AssistantToolEvent } from '../types'
 import { copyTextToClipboard } from '@ce/utils/clipboard'
 
@@ -17,6 +17,7 @@ const props = defineProps<{
 
 const open = ref(false)
 const copiedToolId = ref<string | null>(null)
+const expandedToolIds = reactive(new Set<string>())
 // F8 a11y: 折叠头 ↔ 内容关联。
 const bodyId = `as-xpill-body-${++xpillSeq}`
 
@@ -98,6 +99,11 @@ async function copyToolValue(tool: AssistantToolEvent): Promise<void> {
   }, 1200)
 }
 
+function toggleToolValue(tool: AssistantToolEvent): void {
+  if (expandedToolIds.has(tool.id)) expandedToolIds.delete(tool.id)
+  else expandedToolIds.add(tool.id)
+}
+
 function toolState(tool: AssistantToolEvent): 'error' | 'running' | 'done' {
   if (tool.is_error) return 'error'
   // CHG-015 P8: a tool is done when its result frame arrived (tool.done) — NOT merely
@@ -152,12 +158,24 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
           v-for="tool in props.block.tools"
           :key="tool.id"
           class="v6-sbl"
-          :class="`v6-sbl--${toolState(tool)}`"
+          :class="[`v6-sbl--${toolState(tool)}`, { 'is-value-expanded': expandedToolIds.has(tool.id) }]"
           data-testid="assistant-tool-card"
         >
           <div class="v6-bh">
             <span class="v6-chip" :class="chipClass(toolFamily(tool))">{{ chipLabel(tool, toolFamily(tool)) }}</span>
-            <span class="v6-bpath" :title="toolPath(tool, toolFamily(tool))">{{ toolPath(tool, toolFamily(tool)) }}</span>
+            <button
+              v-if="toolPath(tool, toolFamily(tool))"
+              type="button"
+              class="v6-bvalue"
+              :class="{ 'is-expanded': expandedToolIds.has(tool.id) }"
+              :aria-expanded="expandedToolIds.has(tool.id)"
+              :aria-label="`${expandedToolIds.has(tool.id) ? '收起' : '展开'} ${chipLabel(tool, toolFamily(tool))} 完整详情`"
+              :title="expandedToolIds.has(tool.id) ? '收起完整内容' : '展开完整内容'"
+              @click="toggleToolValue(tool)"
+            >
+              <code class="v6-bpath">{{ toolPath(tool, toolFamily(tool)) }}</code>
+              <span class="v6-bexpand" aria-hidden="true">{{ expandedToolIds.has(tool.id) ? '收起' : '展开' }}</span>
+            </button>
             <button
               v-if="toolPath(tool, toolFamily(tool))"
               type="button"
@@ -261,6 +279,48 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.v6-bvalue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.v6-bvalue:hover .v6-bpath,
+.v6-bvalue:focus-visible .v6-bpath { color: var(--dw-fg); }
+.v6-bvalue:focus-visible { outline: 2px solid var(--dw-ac); outline-offset: 2px; border-radius: 3px; }
+.v6-bvalue.is-expanded { align-items: flex-start; }
+.v6-bvalue.is-expanded .v6-bpath {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.v6-bexpand {
+  flex-shrink: 0;
+  color: var(--dw-ac);
+  font-family: var(--dw-mono);
+  font-size: 9px;
+}
+.v6-sbl.is-value-expanded .v6-bh {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.v6-sbl.is-value-expanded .v6-chip { grid-column: 1; grid-row: 1; }
+.v6-sbl.is-value-expanded .v6-bcopy { grid-column: 3; grid-row: 1; }
+.v6-sbl.is-value-expanded .v6-bvalue {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: 100%;
+  padding: 4px 0 2px;
 }
 .v6-bcopy {
   width: 24px; height: 24px; flex-shrink: 0; display: grid; place-items: center;
