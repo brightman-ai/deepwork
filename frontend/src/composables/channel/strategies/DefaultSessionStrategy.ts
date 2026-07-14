@@ -6,6 +6,7 @@ import type { AssistantBlock, AssistantMessage, AssistantToolEvent, AssistantUsa
 import { normalizeUsage } from '@ce/components/assistant-stream/workstream'
 import { createTrace, tracedFetch, createLogger } from '@ce/utils/obs'
 import type { Ref } from 'vue'
+import { historyGapMessage } from './historyGap'
 
 interface HistoryStep {
   id?: number
@@ -164,7 +165,7 @@ function historyTools(steps: HistoryStep[]): AssistantToolEvent[] {
 }
 
 function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMessage | null {
-  if (isCanceledHistoryTurn(turn)) return null
+  const canceled = isCanceledHistoryTurn(turn)
   const blocks: AssistantBlock[] = []
   const tools = historyTools(turn.steps ?? [])
   if (tools.length) {
@@ -182,6 +183,12 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
   if (turn.error) {
     blocks.push({ type: 'error', message: String(turn.error) })
   }
+  const gap = historyGapMessage({
+    status: turn.status,
+    canceled,
+    hasVisibleOutput: blocks.length > 0,
+  })
+  if (gap) blocks.push({ type: 'error', message: gap, retryable: false })
   // A turn with ONLY reasoning still renders (blocks now holds a thinking block).
   if (!blocks.length && !turn.ai_output) return null
   // CHG-014 D5① — restore the completed-state footer usage from the persisted
@@ -203,7 +210,7 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
     // 时钟(时间): the turn's start, so the footer clock matches live/replay instead of「—」.
     ...(startedAtMs !== undefined ? { started_at_ms: startedAtMs } : {}),
     ...(usage ? { usage } : {}),
-    status: turn.status === 'failed' ? 'failed' : 'normal',
+    status: turn.status === 'failed' || canceled ? 'failed' : 'normal',
     error: turn.error,
   }
 }
