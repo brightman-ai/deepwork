@@ -7,9 +7,16 @@ let xpillSeq = 0
 // CHG-014 D2: 重塑到原型 xpill「已探索」范式 (原型 1094-1101)。
 // xh 头 (已探索 N 文件·M 命令 + chev) → 展开 xb → 嵌套 sbl 工具行
 // (chip ch-read/ch-bash/ch-edit/ch-write + bpath)。family→chip 映射保留。
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { AssistantBlock, AssistantToolEvent } from '../types'
 import { copyTextToClipboard } from '@ce/utils/clipboard'
+import {
+  PROCESS_TRACE_PAGING_THRESHOLD,
+  earlierSegmentWindowStart,
+  latestSegmentWindowStart,
+  newerSegmentWindowStart,
+  segmentWindow,
+} from '../segmentWindow'
 
 const props = defineProps<{
   block: Extract<AssistantBlock, { type: 'tool-group' }>
@@ -20,6 +27,52 @@ const copiedToolId = ref<string | null>(null)
 const expandedToolIds = reactive(new Set<string>())
 // F8 a11y: 折叠头 ↔ 内容关联。
 const bodyId = `as-xpill-body-${++xpillSeq}`
+
+// mapTranscript intentionally groups adjacent runtime tool events into one xpill.
+// A giant AgentRun can therefore contain hundreds of tools inside a single block;
+// paging ProcessTrace alone would still mount all of them when this xpill opens.
+// Keep the group fact complete, but bound the nested tool-card DOM as well.
+const toolWindowStart = ref(latestSegmentWindowStart(props.block.tools.length))
+const followingLatestTools = ref(true)
+const toolsPaged = computed(() => props.block.tools.length > PROCESS_TRACE_PAGING_THRESHOLD)
+const currentToolWindow = computed(() => segmentWindow(props.block.tools.length, toolWindowStart.value))
+const visibleTools = computed(() => {
+  const window = currentToolWindow.value
+  return props.block.tools.slice(window.start, window.end)
+})
+const toolWindowLabel = computed(() => {
+  const window = currentToolWindow.value
+  return `第 ${window.start + 1}–${window.end} 项 · 共 ${window.total}`
+})
+const hasEarlierTools = computed(() => currentToolWindow.value.start > 0)
+const hasNewerTools = computed(() => currentToolWindow.value.end < props.block.tools.length)
+
+watch(
+  () => props.block.tools.length,
+  (total) => {
+    if (total <= PROCESS_TRACE_PAGING_THRESHOLD) {
+      toolWindowStart.value = 0
+      followingLatestTools.value = true
+      return
+    }
+    toolWindowStart.value = followingLatestTools.value
+      ? latestSegmentWindowStart(total)
+      : segmentWindow(total, toolWindowStart.value).start
+  },
+)
+function showEarlierTools(): void {
+  followingLatestTools.value = false
+  toolWindowStart.value = earlierSegmentWindowStart(currentToolWindow.value.start)
+}
+function showNewerTools(): void {
+  const next = newerSegmentWindowStart(props.block.tools.length, currentToolWindow.value.start)
+  toolWindowStart.value = next
+  followingLatestTools.value = next === latestSegmentWindowStart(props.block.tools.length)
+}
+function showLatestTools(): void {
+  followingLatestTools.value = true
+  toolWindowStart.value = latestSegmentWindowStart(props.block.tools.length)
+}
 
 type ToolFamily = 'todo' | 'write' | 'edit' | 'read' | 'bash' | 'search' | 'fetch' | 'browser' | 'workspace' | 'generic'
 
@@ -139,6 +192,7 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
     class="v6-xpill"
     :class="{ 'v6-xpill--open': open }"
     data-testid="assistant-tool-group"
+    :data-tools="props.block.tools.length"
   >
     <button
       type="button"
@@ -153,9 +207,15 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
       <span class="v6-bchev">▶</span>
     </button>
     <div v-if="open" :id="bodyId" class="v6-xb">
+      <nav v-if="toolsPaged" class="v6-tool-pages" aria-label="工具记录导航">
+        <button type="button" :disabled="!hasEarlierTools" @click="showEarlierTools">← 更早</button>
+        <span aria-live="polite">{{ toolWindowLabel }}</span>
+        <button type="button" :disabled="!hasNewerTools" @click="showNewerTools">较新 →</button>
+        <button v-if="hasNewerTools" type="button" @click="showLatestTools">最新</button>
+      </nav>
       <div class="v6-nest">
         <div
-          v-for="tool in props.block.tools"
+          v-for="tool in visibleTools"
           :key="tool.id"
           class="v6-sbl"
           :class="[`v6-sbl--${toolState(tool)}`, { 'is-value-expanded': expandedToolIds.has(tool.id) }]"
@@ -223,6 +283,29 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
 }
 .v6-xn { font-family: var(--dw-mono); font-size: 10px; }
 .v6-xb { min-width: 0; max-width: 100%; margin-top: 7px; padding-left: 6px; box-sizing: border-box; }
+.v6-tool-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 0 4px 16px;
+  color: var(--dw-mu);
+  font-family: var(--dw-mono);
+  font-size: 10.5px;
+}
+.v6-tool-pages span { margin-right: auto; }
+.v6-tool-pages button {
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 1px solid var(--dw-bd);
+  border-radius: 5px;
+  background: var(--dw-sf2);
+  color: var(--dw-mu);
+  font: inherit;
+  cursor: pointer;
+}
+.v6-tool-pages button:hover:not(:disabled) { border-color: var(--dw-ac); color: var(--dw-fg); }
+.v6-tool-pages button:disabled { opacity: 0.35; cursor: default; }
 .v6-nest {
   min-width: 0;
   max-width: 100%;
@@ -349,4 +432,8 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
   flex-shrink: 0;
 }
 @keyframes v6-spin { to { transform: rotate(360deg); } }
+@media (max-width: 768px) {
+  .v6-tool-pages { flex-wrap: wrap; padding-left: 8px; }
+  .v6-tool-pages button { min-height: 44px; }
+}
 </style>

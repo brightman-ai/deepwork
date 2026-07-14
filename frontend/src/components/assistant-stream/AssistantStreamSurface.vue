@@ -32,7 +32,23 @@
       </span>
     </div>
 
-    <div ref="timelineRef" class="as-pane__timeline" role="log" aria-live="polite" aria-label="消息时间线" data-testid="assistant-timeline" @scroll="handleScroll">
+    <div
+      ref="timelineRef"
+      class="as-pane__timeline"
+      role="log"
+      aria-live="polite"
+      aria-label="消息时间线"
+      data-testid="assistant-timeline"
+      @scroll="handleScroll"
+      @wheel.passive="onTimelineWheel"
+      @pointerdown="onTimelinePointerDown"
+      @touchstart.passive="onTimelineTouchStart"
+      @touchmove.passive="onTimelineTouchMove"
+    >
+      <!-- The archive boundary belongs inside the scrollable timeline. Consumers may
+           render a compact retry/manual fallback here; normal history loading is driven
+           by the timeline-near-start event, not by a fixed button outside the scroller. -->
+      <slot name="timelineStart" />
       <div v-if="!messages.length && !streaming" class="as-pane__empty" data-testid="assistant-empty">
         <div class="as-pane__empty-title">{{ emptyTitle }}</div>
         <p>{{ emptyHint }}</p>
@@ -325,6 +341,7 @@ import type {
 import { blockRegistry } from './blockRegistry'
 import ProcessTrace from './ProcessTrace.vue'
 import { splitRun, terminalNotice, type RunSplit } from './runSplit'
+import { isTimelineNearStart, shouldEmitTimelineNearStart } from './timelineScrollIntent'
 import type { ComposerAttachment } from './primitives/ComposerShell.vue'
 import {
   ThinkingBlock,
@@ -447,6 +464,9 @@ const emit = defineEmits<{
   // ws-ux-r3 R1: 附件事件（壳只转发 File[], 上传/校验归装配方）。
   (e: 'attach-files', files: File[]): void
   (e: 'attach-remove', id: string): void
+  // Explicit human upward scrolling reached the history prefetch boundary. Consumers
+  // decide whether they have an older cursor; the surface owns only scroll intent.
+  (e: 'timeline-near-start'): void
 }>()
 
 const draft = ref('')
@@ -510,6 +530,54 @@ const timelineRef = ref<HTMLDivElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const autoScroll = ref(true)
 const showScrollButton = ref(false)
+const TIMELINE_SCROLL_INTENT_TTL_MS = 800
+let timelineLastTop = 0
+let timelineIntentUntil = 0
+let timelinePointerActive = false
+let timelineTouchY: number | null = null
+
+function armTimelineUpwardIntent(): void {
+  timelineIntentUntil = Date.now() + TIMELINE_SCROLL_INTENT_TTL_MS
+  // Detach synchronously, before the browser's wheel/touch default and before an
+  // async history response can mutate messages. Otherwise the message watcher can
+  // still see `autoScroll=true` and race the prepend anchor by snapping to the tail
+  // (observable with touch/compositor scrolling and very fast archive responses).
+  if (autoScroll.value) {
+    detachedAtLen.value = props.messages.length
+    pendingUpdates.value = 0
+  }
+  autoScroll.value = false
+  showScrollButton.value = true
+}
+function emitTimelineNearStartAtRest(): void {
+  const top = Math.max(0, timelineRef.value?.scrollTop ?? 0)
+  if (!isTimelineNearStart(top)) return
+  emit('timeline-near-start')
+}
+function onTimelineWheel(event: WheelEvent): void {
+  if (event.deltaY >= 0) return
+  armTimelineUpwardIntent()
+  // A short last run may not fill the viewport, so scrollTop cannot change and no
+  // scroll event fires. The upward wheel itself is still explicit human intent.
+  emitTimelineNearStartAtRest()
+}
+function onTimelinePointerDown(): void {
+  timelinePointerActive = true
+}
+function releaseTimelinePointer(): void {
+  timelinePointerActive = false
+}
+function onTimelineTouchStart(event: TouchEvent): void {
+  timelineTouchY = event.touches[0]?.clientY ?? null
+}
+function onTimelineTouchMove(event: TouchEvent): void {
+  const nextY = event.touches[0]?.clientY ?? null
+  if (nextY != null && timelineTouchY != null && nextY > timelineTouchY) {
+    armTimelineUpwardIntent()
+    emitTimelineNearStartAtRest()
+  }
+  timelineTouchY = nextY
+}
 
 const contextItems = computed(() => props.contextItems ?? [])
 const launcherItems = computed(() => props.launcherItems ?? [])
@@ -546,6 +614,7 @@ watch(
     if (force) initialScrolled = true
     nextTick(() => void scrollToBottom(force))
   },
+  { immediate: true, flush: 'post' },
 )
 
 watch(
@@ -559,10 +628,15 @@ onMounted(() => {
   // C2 quote-inject: selectionchange 是 PC 划选 + 移动长按选中的统一信号源。
   document.addEventListener('selectionchange', onSelectionChange)
   window.addEventListener('keydown', onQuoteKeydown)
+  window.addEventListener('pointerup', releaseTimelinePointer)
+  window.addEventListener('pointercancel', releaseTimelinePointer)
+  timelineLastTop = timelineRef.value?.scrollTop ?? 0
 })
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onSelectionChange)
   window.removeEventListener('keydown', onQuoteKeydown)
+  window.removeEventListener('pointerup', releaseTimelinePointer)
+  window.removeEventListener('pointercancel', releaseTimelinePointer)
 })
 
 // CHG-014-J D2: msg-u rnd chip — the #N round label is the ordinal of this user
@@ -735,6 +809,15 @@ function isNearBottom(): boolean {
 }
 
 function handleScroll(): void {
+  const top = Math.max(0, timelineRef.value?.scrollTop ?? 0)
+  const now = Date.now()
+  const intentActive = timelinePointerActive || now <= timelineIntentUntil
+  if (
+    shouldEmitTimelineNearStart({ top, previousTop: timelineLastTop, intentActive })
+  ) {
+    emit('timeline-near-start')
+  }
+  timelineLastTop = top
   const near = isNearBottom()
   if (!near && autoScroll.value) {
     // 刚离开流尾 → 从这一刻开始数「新增了多少」。

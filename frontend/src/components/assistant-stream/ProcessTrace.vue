@@ -15,6 +15,13 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import type { AssistantBlock } from './types'
 import { blockRegistry } from './blockRegistry'
 import { formatRunDuration } from './runSplit'
+import {
+  PROCESS_TRACE_PAGING_THRESHOLD,
+  earlierSegmentWindowStart,
+  latestSegmentWindowStart,
+  newerSegmentWindowStart,
+  segmentWindow,
+} from './segmentWindow'
 
 const props = defineProps<{
   segments: AssistantBlock[]
@@ -110,6 +117,59 @@ const summary = computed(() => {
 
 const bodyId = `as-trace-body-${++traceSeq}`
 
+// A giant run is one domain fact, not one DOM commit. Keep the complete `segments`
+// array untouched and project at most 100 adjacent entries. The initial page is the
+// latest one because it contains the action currently running / the run's conclusion.
+const segmentWindowStart = ref(latestSegmentWindowStart(props.segments.length))
+const followingLatestSegments = ref(true)
+const pagedSegments = computed(() => props.segments.length > PROCESS_TRACE_PAGING_THRESHOLD)
+const currentSegmentWindow = computed(() =>
+  segmentWindow(props.segments.length, segmentWindowStart.value),
+)
+const visibleSegments = computed(() => {
+  const window = currentSegmentWindow.value
+  return props.segments.slice(window.start, window.end).map((block, offset) => ({
+    block,
+    index: window.start + offset,
+  }))
+})
+const segmentWindowLabel = computed(() => {
+  const window = currentSegmentWindow.value
+  return `第 ${window.start + 1}–${window.end} 段 · 共 ${window.total}`
+})
+const hasEarlierSegments = computed(() => currentSegmentWindow.value.start > 0)
+const hasNewerSegments = computed(() => currentSegmentWindow.value.end < props.segments.length)
+
+watch(
+  () => props.segments.length,
+  (total) => {
+    if (total <= PROCESS_TRACE_PAGING_THRESHOLD) {
+      segmentWindowStart.value = 0
+      followingLatestSegments.value = true
+      return
+    }
+    if (followingLatestSegments.value) {
+      segmentWindowStart.value = latestSegmentWindowStart(total)
+    } else {
+      segmentWindowStart.value = segmentWindow(total, segmentWindowStart.value).start
+    }
+  },
+)
+
+function showEarlierSegments(): void {
+  followingLatestSegments.value = false
+  segmentWindowStart.value = earlierSegmentWindowStart(currentSegmentWindow.value.start)
+}
+function showNewerSegments(): void {
+  const next = newerSegmentWindowStart(props.segments.length, currentSegmentWindow.value.start)
+  segmentWindowStart.value = next
+  followingLatestSegments.value = next === latestSegmentWindowStart(props.segments.length)
+}
+function showLatestSegments(): void {
+  followingLatestSegments.value = true
+  segmentWindowStart.value = latestSegmentWindowStart(props.segments.length)
+}
+
 function resolveBlock(type: string) {
   return blockRegistry.resolve(type) ?? null
 }
@@ -155,15 +215,23 @@ function handlers(block: AssistantBlock) {
     </button>
 
     <div v-if="open" :id="bodyId" class="as-trace__body">
-      <template v-for="(block, i) in segments" :key="`seg-${i}`">
-        <div v-if="block.type === 'text'" class="as-trace__narration">{{ narrationOf(block) }}</div>
+      <nav v-if="pagedSegments" class="as-trace__pages" aria-label="过程段导航">
+        <button type="button" :disabled="!hasEarlierSegments" @click.stop="showEarlierSegments">← 更早</button>
+        <span aria-live="polite">{{ segmentWindowLabel }}</span>
+        <button type="button" :disabled="!hasNewerSegments" @click.stop="showNewerSegments">较新 →</button>
+        <button v-if="hasNewerSegments" type="button" @click.stop="showLatestSegments">最新</button>
+      </nav>
+      <template v-for="entry in visibleSegments" :key="`seg-${entry.index}`">
+        <template v-if="entry.block.type === 'text'">
+          <div class="as-trace__narration">{{ narrationOf(entry.block) }}</div>
+        </template>
         <component
-          :is="resolveBlock(block.type)"
-          v-else-if="resolveBlock(block.type)"
-          :block="block"
-          :streaming="streaming && i === segments.length - 1"
+          :is="resolveBlock(entry.block.type)"
+          v-else-if="resolveBlock(entry.block.type)"
+          :block="entry.block"
+          :streaming="streaming && entry.index === segments.length - 1"
           :actionable="actionable"
-          v-on="handlers(block)"
+          v-on="handlers(entry.block)"
         />
       </template>
     </div>
@@ -259,6 +327,28 @@ function handlers(block: AssistantBlock) {
   border-left: 2px solid var(--dw-bd);
   margin-left: 3px;
 }
+.as-trace__pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  color: var(--dw-mu);
+  font-family: var(--dw-mono);
+  font-size: 10.5px;
+}
+.as-trace__pages span { margin-right: auto; }
+.as-trace__pages button {
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 1px solid var(--dw-bd);
+  border-radius: 5px;
+  background: var(--dw-sf2);
+  color: var(--dw-mu);
+  font: inherit;
+  cursor: pointer;
+}
+.as-trace__pages button:hover:not(:disabled) { border-color: var(--dw-ac); color: var(--dw-fg); }
+.as-trace__pages button:disabled { opacity: 0.35; cursor: default; }
 /* 展开时，过程与它下面的最终答复之间要有明确断点（否则两段文字连成一片）。 */
 .as-trace--open {
   padding-bottom: 4px;
@@ -279,5 +369,7 @@ function handlers(block: AssistantBlock) {
 @media (max-width: 768px) {
   .as-trace__head { min-height: 44px; }
   .as-trace__sum { display: none; }
+  .as-trace__pages { flex-wrap: wrap; }
+  .as-trace__pages button { min-height: 44px; }
 }
 </style>
