@@ -9,12 +9,14 @@ let xpillSeq = 0
 // (chip ch-read/ch-bash/ch-edit/ch-write + bpath)。family→chip 映射保留。
 import { ref } from 'vue'
 import type { AssistantBlock, AssistantToolEvent } from '../types'
+import { copyTextToClipboard } from '@ce/utils/clipboard'
 
 const props = defineProps<{
   block: Extract<AssistantBlock, { type: 'tool-group' }>
 }>()
 
 const open = ref(false)
+const copiedToolId = ref<string | null>(null)
 // F8 a11y: 折叠头 ↔ 内容关联。
 const bodyId = `as-xpill-body-${++xpillSeq}`
 
@@ -77,13 +79,23 @@ function toolPath(tool: AssistantToolEvent, family: ToolFamily): string {
     // write_stdin → no command (process stdin). Join arrays so it reads as a line.
     const cmd = input.command ?? input.cmd ?? input.script
     const text = Array.isArray(cmd) ? cmd.join(' ') : String(cmd ?? '')
-    return text.slice(0, 120)
+    return text
   }
-  if (family === 'read' || family === 'write' || family === 'edit') return String(input.path ?? input.file_path ?? '').slice(0, 120)
-  if (family === 'search') return String(input.query ?? input.pattern ?? '').slice(0, 120)
-  if (family === 'fetch') return String(input.url ?? '').slice(0, 120)
-  if (family === 'browser') return String(input.query ?? input.chunk_id ?? input.scope ?? '').slice(0, 120)
+  if (family === 'read' || family === 'write' || family === 'edit') return String(input.path ?? input.file_path ?? '')
+  if (family === 'search') return String(input.query ?? input.pattern ?? '')
+  if (family === 'fetch') return String(input.url ?? '')
+  if (family === 'browser') return String(input.query ?? input.chunk_id ?? input.scope ?? '')
   return tool.name
+}
+
+async function copyToolValue(tool: AssistantToolEvent): Promise<void> {
+  const value = toolPath(tool, toolFamily(tool))
+  if (!value) return
+  if (!await copyTextToClipboard(value)) return
+  copiedToolId.value = tool.id
+  window.setTimeout(() => {
+    if (copiedToolId.value === tool.id) copiedToolId.value = null
+  }, 1200)
 }
 
 function toolState(tool: AssistantToolEvent): 'error' | 'running' | 'done' {
@@ -145,7 +157,17 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
         >
           <div class="v6-bh">
             <span class="v6-chip" :class="chipClass(toolFamily(tool))">{{ chipLabel(tool, toolFamily(tool)) }}</span>
-            <span class="v6-bpath">{{ toolPath(tool, toolFamily(tool)) }}</span>
+            <span class="v6-bpath" :title="toolPath(tool, toolFamily(tool))">{{ toolPath(tool, toolFamily(tool)) }}</span>
+            <button
+              v-if="toolPath(tool, toolFamily(tool))"
+              type="button"
+              class="v6-bcopy"
+              :class="{ 'is-copied': copiedToolId === tool.id }"
+              aria-live="polite"
+              :aria-label="`复制 ${chipLabel(tool, toolFamily(tool))} 详情`"
+              :title="copiedToolId === tool.id ? '已复制' : '复制完整内容'"
+              @click="copyToolValue(tool)"
+            >{{ copiedToolId === tool.id ? '已复制' : '⧉' }}</button>
           </div>
         </div>
       </div>
@@ -154,7 +176,14 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
 </template>
 
 <style scoped>
-.v6-xpill { margin: 7px 0; }
+.v6-xpill {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 7px 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
 .v6-xh {
   display: inline-flex;
   align-items: center;
@@ -175,8 +204,10 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
   outline-offset: 2px;
 }
 .v6-xn { font-family: var(--dw-mono); font-size: 10px; }
-.v6-xb { margin-top: 7px; padding-left: 6px; }
+.v6-xb { min-width: 0; max-width: 100%; margin-top: 7px; padding-left: 6px; box-sizing: border-box; }
 .v6-nest {
+  min-width: 0;
+  max-width: 100%;
   padding: 4px 0 0 16px;
   border-left: 2px solid var(--dw-bd);
   margin-top: 6px;
@@ -184,6 +215,10 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
   gap: 4px;
 }
 .v6-sbl {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid var(--dw-bd);
   background: var(--dw-sf);
   border-radius: var(--dw-r2);
@@ -191,6 +226,10 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
 .v6-sbl--running { border-color: var(--dw-ac-border-dim); }
 .v6-sbl--error { border-color: var(--dw-red-border-dim); }
 .v6-bh {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -222,6 +261,16 @@ const running = () => props.block.tools.some(t => !t.done && t.output === undefi
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.v6-bcopy {
+  width: 24px; height: 24px; flex-shrink: 0; display: grid; place-items: center;
+  border: 0; border-radius: 5px; background: transparent; color: var(--dw-mu);
+  font-family: var(--dw-mono); font-size: 11px; cursor: pointer;
+}
+.v6-bcopy:hover, .v6-bcopy:focus-visible { color: var(--dw-fg); background: var(--dw-sf2); }
+.v6-bcopy.is-copied {
+  width: auto; min-width: 24px; padding: 0 7px;
+  color: var(--dw-ok); background: var(--dw-ok-dim);
 }
 .v6-bchev {
   font-size: 9px;

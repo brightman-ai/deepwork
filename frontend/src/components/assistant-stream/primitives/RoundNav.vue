@@ -24,10 +24,13 @@ const props = withDefaults(defineProps<{
   density?: 'hover' | 'persistent'
   rounds?: AssistantRoundItem[]
   meta?: AssistantTimelineMeta | null   // persistent 密度必填
+  /** Hover rail may collapse to ticks only; full titles stay available on hover/focus. */
+  inlineLabels?: boolean
 }>(), {
   density: 'hover',
   rounds: () => [],
   meta: null,
+  inlineLabels: true,
 })
 
 const emit = defineEmits<{
@@ -114,7 +117,7 @@ onUnmounted(() => { dragging.value = false })
 <template>
   <!-- hover 密度: 右缘刻度 + 浮窗。F7: 原生 button → 自带键盘 (Enter/Space) + focus；
        aria-label 暴露轮摘要给读屏；浮窗 :focus-within 也展开 (键盘 focus 可见摘要)。 -->
-  <div v-if="density === 'hover'" class="v6-rnav" data-testid="v6-roundnav-hover">
+  <div v-if="density === 'hover'" class="v6-rnav" :class="{ 'is-compact': !inlineLabels }" data-testid="v6-roundnav-hover">
     <button
       v-for="r in rounds"
       :key="r.index"
@@ -283,6 +286,12 @@ onUnmounted(() => { dragging.value = false })
 }
 .v6-rn:hover .v6-rn-lbl { opacity: 1; color: var(--dw-fg); }
 .v6-rn.cur .v6-rn-lbl { opacity: 1; color: var(--dw-fg); font-weight: 600; }
+.v6-rnav.is-compact .v6-rn-lbl { display: none; }
+.v6-rnav.is-compact .v6-rn { padding: 5px 3px; }
+.v6-rnav.is-compact .v6-rn i { width: 7px; opacity: 0.45; }
+.v6-rnav.is-compact .v6-rn:hover i,
+.v6-rnav.is-compact .v6-rn:focus-visible i { width: 13px; opacity: 1; }
+.v6-rnav.is-compact .v6-rn.cur i { width: 16px; opacity: 1; background: var(--dw-ac); }
 .v6-rn-lbl-n {
   font-family: var(--dw-mono);
   font-size: 8.5px;

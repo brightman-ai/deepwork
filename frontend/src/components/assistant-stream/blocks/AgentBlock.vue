@@ -21,8 +21,9 @@ const props = defineProps<{
 }>()
 
 const bodyId = `as-agent-body-${++agentSeq}`
-// 子流一等公民: 默认展开 (不卷收)。仍可手动折叠以收纳超长子流。
-const open = ref(true)
+// Parent flow shows the dispatch as one compact event. The real child transcript is
+// navigated as its own execution; expanding this block is an explicit inspection action.
+const open = ref(false)
 
 const children = computed<AssistantBlock[]>(() => props.block.children ?? [])
 const hasChildren = computed(() => children.value.length > 0)
@@ -123,7 +124,10 @@ const resultHtml = computed(() => (props.block.result ? renderMd(props.block.res
         <!-- children 为空 (claude sidechain 未内联) → 至少展示派发上下文 + 结果摘要,
              保证 subagent 不塌成空块。 -->
         <div v-else class="as-agent__meta">
-          <p v-if="props.block.prompt" class="as-agent__prompt">{{ props.block.prompt }}</p>
+          <details v-if="props.block.prompt" class="as-agent__prompt-details">
+            <summary>查看派发指令</summary>
+            <p class="as-agent__prompt">{{ props.block.prompt }}</p>
+          </details>
           <div v-if="resultHtml" class="as-block as-block--text" v-html="resultHtml" />
           <p v-if="!props.block.prompt && !resultHtml" class="as-agent__empty">
             子 agent 已派发（{{ label }}）—— 子流明细在该 subagent 自身 transcript。
@@ -209,6 +213,8 @@ const resultHtml = computed(() => (props.block.result ? renderMd(props.block.res
 }
 .as-agent__child { display: contents; }
 .as-agent__meta { display: grid; gap: 6px; }
+.as-agent__prompt-details { color: var(--dw-mu); font-size: 11px; }
+.as-agent__prompt-details summary { cursor: pointer; user-select: none; }
 .as-agent__prompt {
   font-size: 12px;
   color: var(--dw-mu);
