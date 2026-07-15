@@ -37,7 +37,10 @@
 
     <template v-if="state === 'connected'">
       <span v-if="safeRtt > 0" class="conn-stat conn-rtt" :class="rttClass">{{ safeRtt }}ms</span>
-      <span class="conn-stat conn-speed" v-if="safeDownBps > 0 || safeUpBps > 0">
+      <!-- 内联吞吐可选 (inlineThroughput): 稀疏/突发流量 (如 SSE, 多数秒为 0) 下逐秒的
+           ↓↑ span 忽隐忽现会让 chip 宽度跳变闪烁 —— 这类连接关掉它, 只留稳定的 RTT,
+           吞吐详情仍在 tap popover 里。持续流量 (如终端 WS) 可开着。 -->
+      <span class="conn-stat conn-speed" v-if="showInlineRate">
         <span class="bw-down">{{ formatRate(safeDownBps) }}</span>
         <span class="bw-up">{{ formatRate(safeUpBps) }}</span>
       </span>
@@ -111,6 +114,9 @@ const props = defineProps<{
   diagnostic?: string
   /** 断线时是否给出「刷新」重连钮 (R2)。默认 false —— 由能重连的宿主显式开启 */
   refreshable?: boolean
+  /** 内联是否显示 ↓↑ 吞吐 (默认 true)。稀疏/突发流量的连接 (如 SSE) 应传 false 避免逐秒
+   *  span 忽隐忽现导致宽度跳变闪烁 —— 只留稳定 RTT, 吞吐仍在 tap popover 里。 */
+  inlineThroughput?: boolean
   /** data-testid 前缀 (默认 'connection'; 宿主可传自己的命名空间保持既有测试契约) */
   testidPrefix?: string
 }>()
@@ -124,6 +130,9 @@ const safeUpBps = computed(() => props.uploadBps ?? 0)
 const safeTxTotal = computed(() => props.txTotal ?? 0)
 const safeRxTotal = computed(() => props.rxTotal ?? 0)
 const safeUptime = computed(() => props.uptimeSec ?? 0)
+// 内联吞吐: 仅当宿主允许 (默认 true) 且这一秒确有流量时显示。稀疏流量宿主传 inlineThroughput=false
+// 彻底关掉, 避免逐秒 0↔非0 切换让 chip 宽度跳变。
+const showInlineRate = computed(() => (props.inlineThroughput ?? true) && (safeDownBps.value > 0 || safeUpBps.value > 0))
 const stateClass = computed(() => `st-${props.state}`)
 // 连上才有可 tap 的详情 (含流量/时长); 断线只有 diagnostic 时也允许点开看原因。
 const hasDetail = computed(() => props.state === 'connected' || !!props.diagnostic)
