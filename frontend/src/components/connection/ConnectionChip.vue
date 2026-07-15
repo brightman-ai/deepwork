@@ -119,6 +119,9 @@ const props = defineProps<{
   inlineThroughput?: boolean
   /** data-testid 前缀 (默认 'connection'; 宿主可传自己的命名空间保持既有测试契约) */
   testidPrefix?: string
+  /** 覆盖各连接态的内联显示文案 (默认中文)。宿主可传自己的本地化文案 (如终端英文
+   *  Connecting…/Disconnected/Taken over)。只覆盖传入的键, 其余回退默认中文。 */
+  labels?: Partial<Record<ConnectionState, string>>
 }>()
 
 const emit = defineEmits<{ refresh: [] }>()
@@ -140,16 +143,15 @@ const hasDetail = computed(() => props.state === 'connected' || !!props.diagnost
 // 断线且不再有详情/诊断可看时, 关掉可能残留的 popover (但保留失败诊断的 ⓘ popover)。
 watch(() => props.state, (s) => { if (s !== 'connected' && !props.diagnostic) popOpen.value = false })
 
-const stateText = computed(() => {
-  switch (props.state) {
-    case 'connecting': return '连接中…'
-    case 'connected': return '已连接'
-    case 'disconnected': return '已断开'
-    case 'reconnecting': return '重连中…'
-    case 'preempted': return '已被接管'
-    default: return props.state
-  }
-})
+// 默认中文文案 (SSOT 内置)。宿主经 labels prop 覆盖任意键做本地化, 未覆盖的回退这里。
+const DEFAULT_LABELS: Record<ConnectionState, string> = {
+  connecting: '连接中…',
+  connected: '已连接',
+  disconnected: '已断开',
+  reconnecting: '重连中…',
+  preempted: '已被接管',
+}
+const stateText = computed(() => props.labels?.[props.state] ?? DEFAULT_LABELS[props.state] ?? props.state)
 
 const rttClass = computed(() => {
   const r = safeRtt.value
