@@ -215,14 +215,27 @@ export interface AssistantMessage {
   live_usage?: AssistantUsageInfo
   elapsed_ms?: number
   started_at_ms?: number
+  // 轮次终态。role='assistant' 时 = 这一轮执行失败(workstream error 事件 / transcript
+  // run.status==='error')。
+  //
+  // role='user' 时语义是**这条消息从未被派发**(后端前移拦截, 数据库零 turn 行) —— surface
+  // 据此把 UserBubble 切到「未发送」态: 降权 + 说明原因 + 给重试/编辑两条出路。没有这个
+  // 标记时, 一条被拒的消息会以普通气泡留在时间线上, 用户等一个永远不会来的回复。
+  // 复用同一对字段(不新增 unsent/unsentReason): 「这条没成」是同一个事实轴, 只是主语不同。
   status?: 'normal' | 'failed'
+  // 失败原因(人话)。user 消息上 = 未发送的原因, 直接渲染进「未发送 · <原因>」那一行。
   error?: string
   // CHG-014 S8 F10: 用户消息版本切换（编辑重发产生多版本）。仅当消费点接线
   // 且 userBubbleNav=true 时由 surface 透传给 UserBubble；缺失 → 不渲染 nav 钮（无死 UI）。
   versionIndex?: number       // 当前版本序号 (1-based)
   versionCount?: number       // 总版本数 (>1 才显示切换)
-  // owner 对称 steer: 该用户气泡是"运行中插入本轮"的补充(useWorkstreamController.steer 乐观上屏)。
-  // UserBubble 据此显「↩ 已插入本轮」意符, 与普通轮视觉区分(设计心理学: 可视清晰/事后可辨)。
+  // 该用户气泡是**运行中被折进同一轮**的补充指令。
+  //
+  // 现役生产者(2026-07 复核): ① 回放装配 mapTranscript —— 后端 AgentRun.amendments 是
+  // runtime 记录的既成事实(这一轮真的把这段话吸收了); ② share collab 访客消息 steer 成功
+  // 时的乐观气泡。**composer 不再生产它** —— 会话内补充改走「待发队列」(排队 + 本轮结束
+  // 后作为新一轮发出), 因为"能否被当前轮吸收"取决于上游、前端观察不到, 在提交那一刻就
+  // 宣称"已插入本轮"是守不住的承诺。回放/collab 两条路是事后事实, 说得出口。
   // 不变量: steered 气泡**不计入 round 数** —— 它是本轮的补充指令, 不是新的一轮意图。
   steered?: boolean
   // AgentRun 终态（kit AgentRun.status 的镜像；live 期为 undefined = 仍在跑）。
@@ -291,4 +304,47 @@ export interface AssistantTimelineMeta {
   current: number            // #cur
   total: number              // total
   lastReadIndex?: number     // 「回到上次读到的位置」← topic_users.last_read
+}
+
+/**
+ * 待发送项 —— 轮次运行期间用户提交的补充内容，排队等本轮跑完后自动作为**新的一轮**发出。
+ *
+ * 为什么是队列而不是"插入当前轮": 消息能否被在飞的那一轮吸收由上游 runtime 决定，前端
+ * 观察不到结果；而且没有工具调用的轮次（请求已经发出去了）物理上根本无法中途插入。所以
+ * UI 只承诺自己守得住的那句 ——「提交，但不中断模型运行」，交付时机由消费点在轮次结束
+ * 时兑现。这是**状态**不是瞬时动作，因此它有自己的位置(composer 上方)和生命周期(可删)。
+ */
+export interface PendingSend {
+  /** 稳定唯一 id（删除 / 编辑 / 入场动画都按它认人）。 */
+  id: string
+  /** 用户提交的原文（不做任何改写；合并发送时按 '\n' 连接）。**可编辑** —— 排队项的本质
+   *  是"跑动期怕忘了先记下来的草稿"，天然是半成品，所以改字不该逼用户删了重打。 */
+  text: string
+}
+
+/**
+ * 一个 session 最多能排多少条。够高到正常用法永远撞不到（真实场景 1~3 条），存在只为防呆
+ * ——狂敲 Enter 不该让队列无限长。定在这里而不是各自定义：队列的**写**在 pro 的
+ * useComposerEngine（拦截入队），队列的**说明**在本包的 composer（撞顶时改文案劝阻），
+ * 两边同一个数才不会一个拦 20 一个说 50。
+ */
+export const PENDING_MAX = 20
+
+/**
+ * 本轮"想了，但没给出思考正文"。
+ *
+ * 逐轮判断，**不按模型清单一刀切**：同一会话里换模型是常事，而会公开思考的模型（如
+ * Haiku 4.5）的思考是看得见的 —— 对它说"你看不到"就是撒谎。判据只取这条消息自己的地面
+ * 真相：有思考 token（说明确实想了）× 没有任何带正文的 thinking 块。
+ *
+ * 背景：Opus 4.8 / Sonnet 5 不返回思考正文，只返回一枚校验签名（续接时验证思考未被篡改；
+ * 解码后 84% 是不透明字节，没有钥匙能解出内容）。实测三条通道一致：实时 thinking_delta
+ * 无、组装消息块空、rollout 转录 `"thinking":""` 全空。所以正文不存在，不是我们没读。
+ */
+export function isThinkingWithheld(m: Pick<AssistantMessage, 'blocks' | 'usage'>): boolean {
+  const th = m.usage?.thinking_tokens
+  if (!(typeof th === 'number' && th > 0)) return false
+  return !(m.blocks ?? []).some(
+    (b) => b.type === 'thinking' && String((b as { content?: unknown }).content ?? '').trim(),
+  )
 }

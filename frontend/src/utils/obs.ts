@@ -459,6 +459,13 @@ function flushRemote(sync: boolean): void {
 }
 
 function sendEnvelope(envelope: IngestEnvelope, preferBeacon: boolean): void {
+  // No window ⇒ no remote sink. installRemoteLifecycleHooks / installConsoleBridge
+  // already gate on this, but the WARN/ERROR fast path in enqueueRemote reaches here
+  // WITHOUT passing either of them, and apiUrl() dereferences window.__DW_API_BASE —
+  // so outside a browser (bun:test, SSR) merely logging a warning threw ReferenceError.
+  // Local console output is unaffected; only the network hop is skipped, which is the
+  // only honest thing to do when there is no origin to POST to.
+  if (typeof window === 'undefined') return
   const body = JSON.stringify(envelope)
 
   if (preferBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
