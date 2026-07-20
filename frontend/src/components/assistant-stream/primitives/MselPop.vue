@@ -5,6 +5,10 @@ export interface MselItem {
   value: string
   label: string
   hint?: string              // 副标题 (灰小字)
+  // 不可用项: 视觉降权 + 仍可点。故意不是 disabled — 装配方常要在点击时把用户
+  // 送去配置页/新建会话 (RuntimePicker 对未安装 runtime 就是这么做的), 硬禁用会
+  // 让那条引导路径也一起消失, 用户只会得到一个点不动的死项。
+  unavailable?: boolean
 }
 export interface MselColumn {
   heading: string
@@ -30,9 +34,10 @@ const emit = defineEmits<{
         v-for="it in col.items"
         :key="it.value"
         class="v6-msel-it"
-        :class="{ on: it.value === col.selected }"
+        :class="{ on: it.value === col.selected, 'v6-msel-it--off': it.unavailable }"
         role="button"
         tabindex="0"
+        :aria-disabled="it.unavailable ? 'true' : undefined"
         @click="emit('pick', ci, it.value)"
         @keydown.enter="emit('pick', ci, it.value)"
       >
@@ -84,4 +89,9 @@ const emit = defineEmits<{
 .v6-msel-it:hover { background: var(--dw-sf3); color: var(--dw-fg); }
 .v6-msel-it.on { background: var(--dw-ac-dim); color: var(--dw-ac); }
 .v6-msel-it span { font-size: 9.5px; opacity: 0.75; }
+/* 不可用项: 与 RuntimePicker 的 .rtpick__row--off / SettingsSupplyMatrix 的 .sm__rt--off
+   同一视觉语言 (降透明度), 让「点了能用」和「点了会把你送去配置」一眼可分。仍可点 —
+   点击语义由装配方决定 (通常是引导去配置/新建会话)。 */
+.v6-msel-it--off { opacity: 0.5; }
+.v6-msel-it--off:hover { opacity: 0.72; }
 </style>
