@@ -31,6 +31,13 @@ const props = defineProps<{
   attention?: boolean
   /** 完成态总耗时（ms）。缺失 → 标题不编造时长（显示「已处理」而非假 0s）。 */
   elapsedMs?: number
+  /**
+   * F5 (ws-live-session r6 post-fix): 本轮真实终态是 failed/canceled（message.status
+   * ==='failed'，落库 status 的镜像，不是"有没有结束"）。「已处理」隐含"顺利处理完毕"，
+   * 与紧邻的错误块/终态提示（如「本轮已取消，未生成可恢复的回答」）同框会自相矛盾——
+   * Witness 原话"两个状态同时挂着自相矛盾"。缺省 false/未传 → 行为不变（仍显「已处理」）。
+   */
+  failed?: boolean
   /** 运行态起点（ms）。用于活计时。 */
   startedAtMs?: number
   /**
@@ -96,7 +103,15 @@ const duration = computed<string>(() => {
 })
 
 // 运行态与完成态语义必须一致：跑着的时候绝不写「已处理」。
-const title = computed(() => (props.streaming ? '正在处理' : '已处理'))
+// F5: 完成态里 failed/canceled 也不能写「已处理」——那是"顺利处理完毕"的暗示，与紧邻的
+// 错误块/终态提示同框自相矛盾。「未完成」诚实中性：不认领成功，也不撞车下方已经给出的
+// 具体原因（已取消/执行失败/…）。permission/waiting 触发的「待处理」不受影响（那是"AI
+// 这段处理完了、轮到人了"，与「已处理」并不矛盾，见 runSplit.ts ATTENTION_KINDS）。
+const title = computed(() => {
+  if (props.streaming) return '正在处理'
+  if (props.failed) return '未完成'
+  return '已处理'
+})
 
 // 收起时的一行摘要：给个「里面有什么」的意符（不是替代过程的生成式摘要）。
 const summary = computed(() => {

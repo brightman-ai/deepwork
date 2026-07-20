@@ -85,7 +85,11 @@
             :current="userBubbleNav ? (message.versionIndex ?? 1) : undefined"
             :total="userBubbleNav ? (message.versionCount ?? userBubbleTotal) : undefined"
             :steered="message.steered"
+            :unsent="message.status === 'failed'"
+            :unsent-reason="message.error"
             @nav="(dir) => emit('block-action', { action: 'user-nav', block: message, message, index, payload: { dir } })"
+            @retry="emit('block-action', { action: 'user-retry', block: message, message, index })"
+            @edit="emit('block-action', { action: 'user-edit', block: message, message, index })"
           />
           <template v-else>
             <!-- AgentRun 投影 (processTrace 消费点)：过程收进可逆 ProcessTrace，最终答案留在
@@ -103,6 +107,7 @@
                 :segments="runSplitOf(message).trace"
                 :streaming="isLive(message, index)"
                 :attention="runSplitOf(message).attention"
+                :failed="message.status === 'failed'"
                 :elapsed-ms="message.elapsed_ms"
                 :started-at-ms="message.started_at_ms"
                 :follow="autoScroll"
@@ -256,6 +261,63 @@
           >×</button>
         </span>
       </div>
+      <!-- 待发队列 (opt-in: 消费点传了 pendingItems 才存在)。位置 = env row 之下、输入框
+           之上 —— Gestalt 邻近律: 它属于"我将要发出去的东西", 不是对话内容, 所以贴着
+           composer 而不是待在时间线里。
+           状态说明写在这一行上而非只在 tooltip 里: 移动端没有 hover, 含义不能只活在
+           title 属性中 (Norman: 意符必须可见)。 -->
+      <div v-if="pendingRows.length" class="as-pending" data-testid="assistant-pending">
+        <div class="as-pending__cap">
+          <!-- 说"合并为一条"而不是"自动发送": 屏幕上是 N 张卡片、发出去是 1 个气泡 N 行,
+               这个转换必须先讲清楚, 否则用户的心智模型和系统行为对不上(Norman)。 -->
+          <span class="as-pending__cap-text">
+            待发 {{ pendingCount }} 条 ·
+            {{ pendingCount > 1 ? '本轮结束后合并为一条发送' : '本轮结束后自动发送' }}
+          </span>
+          <button
+            v-if="pendingCollapsible"
+            type="button"
+            class="as-pending__toggle"
+            data-testid="assistant-pending-toggle"
+            @click="pendingExpanded = !pendingExpanded"
+          >{{ pendingExpanded ? '收起' : `+${pendingCount - pendingRows.length} 条` }}</button>
+        </div>
+        <div class="as-pending__list" :class="{ 'is-expanded': pendingExpanded }">
+          <div
+            v-for="p in pendingRows"
+            :key="p.id"
+            class="as-pending__row"
+            :class="{ 'is-new': p.id === pendingFlashId }"
+            :title="p.text"
+          >
+            <span class="as-pending__icon" aria-hidden="true">↳</span>
+            <!-- 每一行**本身就是输入框**，不存在"只读态/编辑态"的切换。
+                 曾经的做法是点铅笔才换成 input、失焦就换回去，那引入了一个模式，而模式带来
+                 三个连锁毛病：失焦即卸载(输入框在指下消失)、只读态与铅笔 aria-label 撞名、
+                 还要一个 pendingEditId 状态去跟 DOM 对齐。改成常驻 input 后三个一起消失，
+                 而且手机上"点一下文字就能改"本来就是文本框最天然的语义 —— 不需要再教。
+                 编辑即写: @input 直接把字送回队列, 没有"确认"这一步, 所以本轮恰好在打字中间
+                 结束、flush 抢跑, 拿到的也必然是屏幕上那行字。 -->
+            <input
+              class="as-pending__text"
+              type="text"
+              :value="p.text"
+              :aria-label="`待发内容，可编辑：${p.text}`"
+              data-testid="assistant-pending-edit"
+              @input="emit('pending-update', p.id, ($event.target as HTMLInputElement).value)"
+              @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+              @keydown.esc.prevent="($event.target as HTMLInputElement).blur()"
+            />
+            <button
+              type="button"
+              class="as-pending__x"
+              :aria-label="`删除待发内容：${p.text}`"
+              data-testid="assistant-pending-remove"
+              @click="emit('pending-remove', p.id)"
+            >×</button>
+          </div>
+        </div>
+      </div>
       <div class="as-composer">
         <button
           v-if="allowAttach"
@@ -280,21 +342,35 @@
           v-model="draft"
           class="as-composer__input"
           :placeholder="effectivePlaceholder"
-          :disabled="disabled || (streaming && !steerable)"
+          :disabled="disabled || (streaming && !steerable && !guidable)"
           rows="1"
           aria-label="消息输入"
           data-testid="assistant-composer-input"
-          @input="resizeComposer"
+          @input="onComposerInput"
           @focus="onComposerFocus"
           @blur="onComposerBlur"
           @paste="onComposerPaste"
-          @keydown.enter.exact.prevent="submit"
+          @keydown="onComposerKeydown"
         />
         <!-- streaming 态：消费点 opt-in `stoppable` 时显 codex 式可点"■ 停止"→ emit('stop')
              （接 @stop 调 /interrupt 中断当前生成：PTY 保进程 warm / SDK SIGINT）。未声明
              stoppable 的消费点保留旧禁用"..."（不显示点了无效的钮 — 数据诚实，同 F2）。 -->
+        <!-- 在跑 + 有草稿 + 消费点接了待发队列 → 发送位换成「↳ 补充」。标签本身就说得清
+             动作(把这段话补上去)，不靠 tooltip —— 移动端没有 hover。承诺只写我们守得住的
+             那句: 提交、不中断运行; **不说"插入本轮"** —— 能否被当前轮吸收取决于上游,
+             我们观察不到, 宣称即是守不住的承诺。 -->
         <button
-          v-if="streaming && stoppable"
+          v-if="canGuide"
+          type="button"
+          class="as-composer__send as-composer__send--guide"
+          data-testid="assistant-composer-guide"
+          title="提交，但不中断模型运行"
+          @click="submit"
+        >
+          ↳ 补充
+        </button>
+        <button
+          v-else-if="streaming && stoppable"
           type="button"
           class="as-composer__send as-composer__send--stop"
           data-testid="assistant-composer-stop"
@@ -312,6 +388,15 @@
         >
           {{ streaming ? '...' : sendLabel }}
         </button>
+        <!-- "/" 命令补全层：仅 CLI runtime 且有匹配项时出现，锚在输入行上方。 -->
+        <SlashCommandMenu
+          v-if="slashVisible"
+          :groups="slashViewState.groups"
+          :active-index="slashActive"
+          @select="chooseSlash"
+          @hover="(i) => (slashActive = i)"
+          @expand="expandSlashGroup"
+        />
       </div>
       <div v-if="launcherOpen && launcherItems.length" class="as-pane__launcher">
         <button
@@ -337,12 +422,25 @@ import type {
   AssistantDensity,
   AssistantLauncherItem,
   AssistantMessage,
+  PendingSend,
 } from './types'
+import { PENDING_MAX } from './types'
 import { blockRegistry } from './blockRegistry'
 import ProcessTrace from './ProcessTrace.vue'
 import { splitRun, terminalNotice, type RunSplit } from './runSplit'
 import { isTimelineNearStart, shouldEmitTimelineNearStart } from './timelineScrollIntent'
 import type { ComposerAttachment } from './primitives/ComposerShell.vue'
+import { useSlashCommands } from './useSlashCommands'
+import {
+  applySlashSelection,
+  filterSlashCommands,
+  groupSlashCommands,
+  isSlashRuntime,
+  slashQueryAt,
+  SLASH_GROUP_CAP,
+  type SlashView,
+} from './slashCommands'
+import SlashCommandMenu from './primitives/SlashCommandMenu.vue'
 import {
   ThinkingBlock,
   ToolGroupBlock,
@@ -404,6 +502,18 @@ const props = withDefaults(defineProps<{
   // 默认 false —— chat/OD/browser/topic 保留各自的产品 IA（本变更的显式非目标）；
   // WS(live/replay) 与 share 只读投影置 true，三者因此共用同一投影语义，不会漂移。
   processTrace?: boolean
+  // 能力驱动 "/" 命令补全：仅当会话 runtime ∈ {claude, codex}（CLI）才挂补全层，其它
+  // runtime（含原生 deepwork）零渲染零成本。portal 无特判 —— chat/ws/od 只把会话 runtime
+  // 当普通 prop 传进来即自然一致（同 sessionId 的传法）。默认 null → 不挂。
+  cliRuntime?: string | null
+  // 项目级命令扫描范围：透传给 GET /api/cli/commands?workspace_id=。无 rootDir 的讨论态
+  // workspace 传 null → 只有 builtin + user 两层（后端 fail-open）。
+  workspaceId?: number | null
+  // 待发队列（能力 opt-in）。**传了这个 prop = 消费点承诺自己会在轮次结束时把队列发出去**,
+  // 于是 streaming 期的发送位才敢显示「↳ 补充」。默认 undefined = 不传 → 本壳的渲染与
+  // 行为与接入前逐像素相同（chat/od/claw/topic/browser 五个消费点共用同一份壳，缺省
+  // 必须绝对无副作用）。壳只负责显示与两个事件，队列状态/交付时机归消费点。
+  pendingItems?: PendingSend[]
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -436,6 +546,8 @@ const props = withDefaults(defineProps<{
   allowAttach: false,
   attachments: () => [],
   processTrace: false,
+  cliRuntime: null,
+  workspaceId: null,
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -444,7 +556,12 @@ const props = withDefaults(defineProps<{
 // 消费点接线后用 block-actionable 打开按钮渲染；未接线时按钮不渲染（数据诚实，
 // 不显示可点但无效的钮 — F2）。
 export interface AssistantBlockAction {
-  action: string                          // 'open'|'export'|'goto'|'expand'|'allow-once'|'allow-always'|'deny'|'user-nav'|'copy'|'retry'|'project'|'branch'
+  // 'open'|'export'|'goto'|'expand'|'allow-once'|'allow-always'|'deny'|'copy'|'retry'|'project'|'branch'
+  // 用户气泡发起的动作统一带 user- 前缀: 'user-nav'|'user-retry'|'user-edit'。
+  // user-retry 刻意**不叫** 'retry' —— 'retry' 已被 ErrorBlock/UsageFooter 占用, 且 surface
+  // 顶层还有一个独立的 (e:'retry') 错误条事件。三者语义不同(重发这一条 / 重跑这一轮 /
+  // 重发上次), 混名会让消费点在一个 handler 里分不清该做哪件事。
+  action: string
   block: unknown                          // 触发块（含 type）
   message: AssistantMessage
   index: number                           // 消息在时间线中的下标
@@ -455,6 +572,14 @@ const emit = defineEmits<{
   (e: 'send', text: string): void
   (e: 'stop'): void
   (e: 'steer', text: string): void
+  // 待发队列（配 pendingItems）: 'guide' = 用户在跑动期提交了一段补充, 请把它排进队列;
+  // 'pending-remove' = 交付前删掉某条。壳不持有队列, 也不决定何时交付 —— 那是消费点的
+  // 承诺（它才知道 streaming 何时结束、该走哪条 send 路径）。
+  (e: 'guide', text: string): void
+  (e: 'pending-remove', id: string): void
+  // 'pending-update' = 行内改字。**每次击键都发**（不是确认时才发）——队列因此永远等于屏幕
+  // 上那行字，"编辑中但还没提交"这个中间态根本不存在，轮次恰好此刻结束也抢不走用户的字。
+  (e: 'pending-update', id: string, text: string): void
   (e: 'clear-error'): void
   (e: 'retry'): void
   (e: 'block-action', action: AssistantBlockAction): void
@@ -529,6 +654,104 @@ const launcherOpen = ref(false)
 const timelineRef = ref<HTMLDivElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const autoScroll = ref(true)
+
+// ── "/" slash-command completion ──────────────────────────────────────────────
+// Capability-driven: only claude/codex sessions mount the menu; the full set is
+// prefetched ONCE per (runtime, workspace) and every keystroke filters it locally
+// (zero per-keystroke backend requests — see slashCommands.ts / useSlashCommands.ts).
+const { commands: slashCommands, prefetch: prefetchSlashCommands } = useSlashCommands()
+const slashOpen = ref(false)
+const slashQuery = ref('')
+const slashActive = ref(0)
+// 分区展开态（"显示全部 N 个技能"点过的区）。每次开菜单重置 —— 敲一次 "/" 就是一次新的
+// 检索，上一次展开了什么不该粘着。
+const slashExpanded = ref<Set<string>>(new Set())
+// groups(渲染) 与 flat(键盘导航) 一次算出、同源: 被 cap 折掉的行同时不在两者里, ↑↓ 因此
+// 天生走不进看不见的项 —— 不需要第二个"这行可见吗"的判据去跟模板对齐。
+const slashViewState = computed<SlashView>(() => {
+  if (!slashOpen.value) return { groups: [], flat: [] }
+  return groupSlashCommands(filterSlashCommands(slashCommands.value, slashQuery.value), {
+    // 一旦开始打字，用户自己已经收窄了范围，再折叠纯属碍事；只有空查询（刚敲下 "/"）
+    // 才限量——那一刻本机是 31 技能 + 55 命令，不分区限量就是一坨 86 行的滚动条。
+    cap: slashQuery.value.trim() ? Number.POSITIVE_INFINITY : SLASH_GROUP_CAP,
+    expanded: slashExpanded.value,
+  })
+})
+const slashFlat = computed(() => slashViewState.value.flat)
+const slashVisible = computed(() => slashOpen.value && slashFlat.value.length > 0)
+watch(slashOpen, (open) => { if (!open) slashExpanded.value = new Set() })
+
+function expandSlashGroup(key: string): void {
+  slashExpanded.value = new Set(slashExpanded.value).add(key)
+  // mousedown.prevent 已经保住了焦点，这里只是确保展开后还能直接继续打字过滤。
+  nextTick(() => textareaRef.value?.focus())
+}
+
+// Prefetch once when the session opens / runtime changes. Module-level cache dedups
+// repeat calls; a non-CLI runtime resolves to an empty list → the menu never renders.
+watch(
+  () => [props.cliRuntime, props.workspaceId] as const,
+  ([rt, wsId]) => {
+    slashOpen.value = false
+    if (isSlashRuntime(rt)) void prefetchSlashCommands(rt, wsId as number | null)
+  },
+  { immediate: true },
+)
+
+function updateSlashMenu(): void {
+  if (!isSlashRuntime(props.cliRuntime)) { slashOpen.value = false; return }
+  const el = textareaRef.value
+  if (!el) { slashOpen.value = false; return }
+  const q = slashQueryAt(el.value, el.selectionStart ?? el.value.length)
+  if (q == null) { slashOpen.value = false; return }
+  slashQuery.value = q
+  slashActive.value = 0
+  slashOpen.value = true
+}
+
+function onComposerInput(): void {
+  resizeComposer()
+  updateSlashMenu()
+}
+
+function moveSlashActive(delta: number): void {
+  const n = slashFlat.value.length
+  if (n) slashActive.value = (slashActive.value + delta + n) % n
+}
+
+function chooseSlash(index: number): void {
+  const cmd = slashFlat.value[index]
+  const el = textareaRef.value
+  if (!cmd || !el) return
+  const { text, caret } = applySlashSelection(el.value, el.selectionStart ?? el.value.length, cmd.name)
+  draft.value = text
+  slashOpen.value = false
+  nextTick(() => {
+    resizeComposer()
+    el.focus()
+    el.selectionStart = el.selectionEnd = caret
+  })
+}
+
+// Unified composer keydown. When the menu is open it captures ↑↓ / Enter / Tab / Esc;
+// otherwise it preserves the prior contract (Enter[exact] → submit, Shift+Enter → 换行).
+function onComposerKeydown(e: KeyboardEvent): void {
+  if (slashVisible.value) {
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); moveSlashActive(1); return
+      case 'ArrowUp': e.preventDefault(); moveSlashActive(-1); return
+      case 'Tab': e.preventDefault(); chooseSlash(slashActive.value); return
+      case 'Enter':
+        if (!e.shiftKey && !e.isComposing) { e.preventDefault(); chooseSlash(slashActive.value); return }
+        break
+      case 'Escape': e.preventDefault(); slashOpen.value = false; return
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing) {
+    e.preventDefault()
+    submit()
+  }
+}
 const showScrollButton = ref(false)
 const TIMELINE_SCROLL_INTENT_TTL_MS = 800
 let timelineLastTop = 0
@@ -582,17 +805,69 @@ function onTimelineTouchMove(event: TouchEvent): void {
 const contextItems = computed(() => props.contextItems ?? [])
 const launcherItems = computed(() => props.launcherItems ?? [])
 const canSend = computed(() => !props.disabled && !props.streaming && draft.value.trim().length > 0)
+// ── 待发队列（能力 opt-in）─────────────────────────────────────────────────────
+// guidable: 消费点传了 pendingItems ⇒ 它承诺"轮次结束时把队列发出去"。未传 ⇒ 全套待发
+// 机制在本壳内不存在（零渲染、零行为差异）。
+const guidable = computed(() => props.pendingItems != null)
+// 发送位换成「↳ 补充」的条件。跟着草稿走: 打了字就说明意图是补充而不是中断; 草稿一空
+// (提交后立刻发生) 发送位就回到「■ 停止」，所以中断能力最多只被遮一次击键。
+const pendingFull = computed(() => (props.pendingItems?.length ?? 0) >= PENDING_MAX)
+const canGuide = computed(() =>
+  !props.disabled && props.streaming && guidable.value && !pendingFull.value &&
+  draft.value.trim().length > 0,
+)
+
+// 行内编辑没有任何状态: 每行常驻 input, 编辑即写。曾经有过 pendingEditId + 单例 ref +
+// "队列清空时退出编辑态"的 watch, 全部随模式一起删掉了 —— 没有模式就没有要同步的东西。
+// 移动端 ≤2 行: caption 占 1 行, 折叠时只留 1 条待发, 其余收进「+N 条」。展开后列表自身
+// 滚动(max-height)，永远不吃对话区的可视高度。桌面不折叠, 但列表同样限高可滚。
+const pendingCount = computed(() => props.pendingItems?.length ?? 0)
+const pendingCollapsible = computed(() => isNarrowViewport.value && pendingCount.value > 1)
+const pendingExpanded = ref(false)
+const pendingRows = computed<PendingSend[]>(() => {
+  const all = props.pendingItems ?? []
+  if (pendingCollapsible.value && !pendingExpanded.value) return all.slice(0, 1)
+  return all
+})
+// 入场闪一下 (~300ms): 用户刚打的字消失在输入框里, 必须能看见它"去了哪儿"(Norman 反馈)。
+// prefers-reduced-motion 由 CSS 侧关掉动画, 这里只负责标记谁是新来的。
+const pendingFlashId = ref<string | null>(null)
+let pendingFlashTimer: ReturnType<typeof setTimeout> | null = null
+let pendingSeenIds = new Set<string>()
+watch(
+  () => props.pendingItems,
+  (items) => {
+    const ids = (items ?? []).map((p) => p.id)
+    const fresh = ids.find((id) => !pendingSeenIds.has(id))
+    pendingSeenIds = new Set(ids)
+    if (!fresh) return
+    pendingFlashId.value = fresh
+    if (pendingFlashTimer) clearTimeout(pendingFlashTimer)
+    pendingFlashTimer = setTimeout(() => { pendingFlashId.value = null }, 320)
+  },
+  { deep: true, immediate: true },
+)
+// 队列空了(已交付/删光) → 折叠状态复位, 下一批待发不会莫名其妙地以展开态出现。
+watch(
+  () => props.pendingItems?.length ?? 0,
+  (n) => { if (n === 0) pendingExpanded.value = false },
+)
 // codex-review-r1 #16: composerMeta shows unless THIS consumer opted into mobile
 // suppression (composerMetaHideMobile) AND the viewport is actually narrow.
 const showComposerMeta = computed(() =>
   !!props.composerMeta && (!props.composerMetaHideMobile || !isNarrowViewport.value),
 )
-// steerable + streaming 态：placeholder 提示 Enter 走 steer（插入运行轮），而非常规发送。
-const effectivePlaceholder = computed(() =>
-  props.streaming && props.steerable
-    ? '补充说明会插入当前轮…（Enter 排队 · Shift+Enter 换行）'
-    : props.placeholder,
-)
+// streaming 态下 composer 仍可用时, placeholder 要说清 Enter 会做什么（跟常规发送不同）。
+// guidable 优先于 steerable —— 前者的说法是我们守得住的（排队 + 本轮结束后发），后者
+// 宣称"插入当前轮"，是否真被吸收由上游决定、我们观察不到。
+const effectivePlaceholder = computed(() => {
+  if (!props.streaming) return props.placeholder
+  // 撞顶时说清"现在做不了什么、要先做什么"（Norman: 防错优于报错——「补充」键此刻已停用）。
+  if (guidable.value && pendingFull.value) return `待发已满 ${PENDING_MAX} 条，先删掉几条再补充…`
+  if (guidable.value) return '补充内容会排队，本轮结束后合并为一条发送…（Enter 排队 · Shift+Enter 换行）'
+  if (props.steerable) return '补充说明会插入当前轮…（Enter 排队 · Shift+Enter 换行）'
+  return props.placeholder
+})
 const hasLiveAssistantMessage = computed(() => {
   const last = props.messages[props.messages.length - 1]
   return Boolean(
@@ -637,6 +912,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onQuoteKeydown)
   window.removeEventListener('pointerup', releaseTimelinePointer)
   window.removeEventListener('pointercancel', releaseTimelinePointer)
+  if (pendingFlashTimer) clearTimeout(pendingFlashTimer)
 })
 
 // CHG-014-J D2: msg-u rnd chip — the #N round label is the ordinal of this user
@@ -717,9 +993,21 @@ function shouldShowFooter(message: AssistantMessage): boolean {
 function submit(): void {
   const text = draft.value.trim()
   if (!text) return
-  // owner 对称 steer: streaming + steerable 态下 Enter 不新开轮，而是把补充说明插入
-  // 正在跑的运行轮（消费点 @steer 调 POST input-events）。canSend 语义不变（仍要求
-  // !streaming）——发送按钮在 streaming 时保持禁用，steer 只走 Enter 这一条路径。
+  // 待发队列: streaming 期提交 = 排队, 不发请求、不碰正在跑的轮次。交付由消费点在轮次
+  // 结束时兑现（它承诺过, 见 pendingItems 注释）。焦点留在输入框 —— 补充常常不止一条,
+  // 连写第二条不该还要再点一次输入区。
+  if (props.streaming && guidable.value) {
+    draft.value = ''
+    launcherOpen.value = false
+    resizeComposer()
+    emit('guide', text)
+    nextTick(() => textareaRef.value?.focus())
+    return
+  }
+  // owner 对称 steer(遗留路径, 现无消费点接线 —— WS 已改走上面的待发队列): streaming +
+  // steerable 态下 Enter 不新开轮，而是把补充说明插入正在跑的运行轮（消费点 @steer 调
+  // POST input-events）。保留而非删除: 删除动作要先枚举后端 Steer 的其它调用方（share
+  // collab 仍在用同一条链路）并由人拍板。
   if (props.streaming && props.steerable) {
     draft.value = ''
     launcherOpen.value = false
@@ -755,7 +1043,9 @@ function composerMaxPx(): number {
   return 180
 }
 function onComposerFocus(): void { composerFocused.value = true; resizeComposer() }
-function onComposerBlur(): void { composerFocused.value = false; resizeComposer() }
+// Clicking a menu row uses @mousedown.prevent so it never blurs the textarea; a real
+// blur (click elsewhere / tab away) therefore safely dismisses the "/" menu.
+function onComposerBlur(): void { composerFocused.value = false; slashOpen.value = false; resizeComposer() }
 
 function resizeComposer(): void {
   if (!textareaRef.value) return
@@ -1341,6 +1631,7 @@ function renderMarkdown(value: unknown): string {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  position: relative; /* anchor for the "/" completion overlay (bottom: 100%) */
 }
 
 .as-composer__input {
@@ -1395,6 +1686,93 @@ function renderMarkdown(value: unknown): string {
 
 .as-composer__send--stop:hover {
   background: color-mix(in srgb, var(--dw-red) 20%, transparent);
+}
+
+/* 「↳ 补充」= 在跑期打了字时的主动作。用 accent 而非 red：它是补充不是中断，颜色本身
+   就该把它和「停止」分开（草稿一空即让回停止键，中断从不真正失联）。 */
+.as-composer__send--guide {
+  background: var(--dw-ac-dim);
+  color: var(--dw-ac);
+  border: 1px solid var(--dw-ac-border-dim);
+  cursor: pointer;
+}
+.as-composer__send--guide:hover {
+  background: color-mix(in srgb, var(--dw-ac) 20%, transparent);
+}
+
+/* ── 待发队列 ────────────────────────────────────────────────────────────────
+   一个视觉整体（caption 说状态 + 行说内容），贴着 composer 站，读起来属于"我要发的
+   东西"而不是对话。限高可滚 → 无论排了多少条都吃不掉对话区的可视高度。 */
+.as-pending {
+  margin-bottom: 6px;
+  border: 1px solid var(--dw-ac-border-dim);
+  border-radius: 8px;
+  background: var(--dw-ac-dim);
+  overflow: hidden;
+}
+.as-pending__cap {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px 3px;
+  font-size: 11px; line-height: 1.4;
+  color: var(--dw-ac);
+}
+.as-pending__cap-text { flex: 1; min-width: 0; }
+.as-pending__toggle {
+  flex: none;
+  background: none; border: none; padding: 2px 4px;
+  font: inherit; color: inherit; opacity: 0.85;
+  cursor: pointer; text-decoration: underline;
+}
+.as-pending__list { max-height: 84px; overflow-y: auto; }
+.as-pending__row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px 4px;
+  font-size: 12px; line-height: 1.5;
+  color: var(--dw-tx);
+}
+.as-pending__icon { flex: none; color: var(--dw-ac); opacity: 0.8; }
+/* 每行常驻一个 input，但**看起来只是一行字**：脱掉全部输入框外观，只留文本。
+   意符靠两样东西给：cursor:text（悬停即知可改）+ 聚焦时浮现的下划线和底色。
+   不画常态边框是刻意的 —— 队列是"我等下要发的话"，不是一张待填的表单。 */
+.as-pending__text {
+  flex: 1; min-width: 0;
+  padding: 0; margin: 0;
+  background: none; border: none; outline: none;
+  font: inherit; color: inherit;
+  text-overflow: ellipsis;   /* 未聚焦时长文本收尾省略；聚焦后原生横向滚动 */
+  cursor: text;
+  border-bottom: 1px solid transparent;  /* 占位，聚焦时才上色 → 行高不跳 */
+}
+.as-pending__text:focus {
+  color: var(--dw-fg);
+  border-bottom-color: var(--dw-ac);
+}
+.as-pending__x {
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  background: none; border: none; border-radius: 4px;
+  color: var(--dw-mu); font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.as-pending__x:hover { background: var(--dw-sf3); color: var(--dw-tx); }
+/* 入场瞬时高亮: 用户刚打的字从输入框消失了, 得看见它落在哪儿。 */
+@keyframes as-pending-in {
+  from { background: color-mix(in srgb, var(--dw-ac) 28%, transparent); }
+  to   { background: transparent; }
+}
+.as-pending__row.is-new { animation: as-pending-in 300ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .as-pending__row.is-new { animation: none; }
+}
+/* 移动: 触摸目标 ≥32px（Fitts / HIG 最小可点区），列表展开时也不吃满屏。 */
+@media (max-width: 768px) {
+  .as-pending__x { width: 32px; height: 32px; }
+  /* 常驻 input 在 iOS 上字号 <16px 会触发聚焦自动缩放（整页放大后再也回不去，本项目
+     踩过）。行高不变，只把字号顶到 16px 的安全线。 */
+  .as-pending__text { font-size: 16px; }
+  .as-pending__row { padding-top: 0; padding-bottom: 0; }
+  .as-pending__list { max-height: 30vh; }
 }
 
 .as-pane__launcher {

@@ -15,6 +15,8 @@
     :composer-meta="composerMeta"
     :disabled="disabled"
     :density="density"
+    :cli-runtime="cliRuntime"
+    :workspace-id="workspaceId"
     @send="handleSend"
     @clear-error="controller.error.value = ''"
   >
@@ -60,6 +62,9 @@ const props = withDefaults(defineProps<{
   active?: boolean
   historyParams?: Record<string, string | number | boolean | undefined>
   buildInput?: (text: string) => string | Promise<string>
+  // 透传给 surface 的 "/" 命令补全能力开关：会话 runtime（claude/codex 才挂）+ 项目扫描范围。
+  cliRuntime?: string | null
+  workspaceId?: number | null
 }>(), {
   sessionId: null,
   createPayload: null,
@@ -78,6 +83,8 @@ const props = withDefaults(defineProps<{
   memoryOn: undefined,
   active: true,
   historyParams: () => ({}),
+  cliRuntime: null,
+  workspaceId: null,
 })
 
 const emit = defineEmits<{

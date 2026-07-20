@@ -7,18 +7,58 @@ defineProps<{
   current?: number           // 当前 / 总数 显示
   total?: number
   edited?: boolean
-  // owner 对称 steer: 该气泡是"运行中插入本轮"的补充 → 显「↩ 已插入本轮」意符,
-  // 与普通轮视觉区分(设计心理学: 可视清晰, 事后能辨这是中途注入非独立一轮)。
+  // 该气泡是"运行中被折进同一轮"的补充 → 显「↩ 已插入本轮」意符, 与普通轮视觉区分
+  // (设计心理学: 事后能辨这是中途注入而非独立一轮)。
+  //
+  // 这个徽章说的是**已经发生的事实**, 不是承诺 —— 所以只由事后可核的来源产生:
+  //   ① 回放: 后端 AgentRun.amendments (runtime 记录下"这一轮确实吸收了这段话");
+  //   ② share collab 访客消息 steer 成功返回后的乐观气泡。
+  // composer **不再**产生它: 会话内补充已改为「待发队列」(排队 + 本轮结束后作为新一轮
+  // 发出) —— 提交那一刻我们无从知道上游会不会吸收, 当场宣称"已插入本轮"是守不住的承诺。
+  // 换言之这里没有孤儿意符: 有生产者、且生产者给的都是既成事实。
   steered?: boolean
+  // 「未发送」诚实态: 这条消息**从未被派发**(后端前移拦截 → 数据库零 turn 行),
+  // 所以它不是"发出去了没人理", 而是"根本没发出去"。默认渲染的普通气泡会让用户
+  // 一直等一个永远不会来的回复 —— 这里把它降权 + 明说原因 + 给出两条出路。
+  //
+  // 视觉走**降权**(虚线边 + 半透)而非红底告警: 用户没做错事, 是系统拒收; 红底会把
+  // "改个模型再发"读成"出大事了"。
+  unsent?: boolean
+  unsentReason?: string
 }>()
 
-const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
+// unsent 动作**自门控**: 只有显式传 unsent 的消费点才会渲染这两个钮, 所以不存在
+// "可点但无效"的死 UI (与 surface 的 blockActionable 门同一原则, 但无需消费点额外
+// 打开一个全局开关 —— 那会连带点亮它并未接线的其它块内动作)。
+const emit = defineEmits<{
+  (e: 'nav', dir: -1 | 1): void
+  (e: 'retry'): void
+  (e: 'edit'): void
+}>()
 </script>
 
 <template>
   <div class="v6-msg-u" data-testid="assistant-user-bubble">
     <div class="v6-msg-u__col">
-      <div class="v6-bub">{{ content }}</div>
+      <div class="v6-bub" :class="{ 'is-unsent': unsent }">{{ content }}</div>
+      <!-- 未发送行: 诚实说明 + 两条出路。unsent 为假时整行不渲染 → 既有消费点逐像素不变。 -->
+      <div v-if="unsent" class="v6-unsent" data-testid="user-bubble-unsent">
+        <span class="v6-unsent__label">未发送{{ unsentReason ? ` · ${unsentReason}` : '' }}</span>
+        <button
+          type="button"
+          class="v6-unsent__act"
+          data-testid="user-bubble-retry"
+          title="用当前设置原地重发这一条"
+          @click="emit('retry')"
+        >重试</button>
+        <button
+          type="button"
+          class="v6-unsent__act"
+          data-testid="user-bubble-edit"
+          title="把内容放回输入框修改"
+          @click="emit('edit')"
+        >编辑</button>
+      </div>
       <div v-if="round !== undefined || total || steered" class="v6-rnd">
         <span v-if="round !== undefined" class="v6-rndchip">#{{ round }}</span>
         <button v-if="total && total > 1" type="button" @click="emit('nav', -1)">‹</button>
@@ -52,6 +92,44 @@ const emit = defineEmits<{ (e: 'nav', dir: -1 | 1): void }>()
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+/* 未发送 = 降权, 不是告警。虚线边说"这是个未完成的草稿态"，半透说"它不在对话里"。
+   padding 减 1px 抵掉新增的 1px 边框 → 重发后气泡回到常态时不发生 1px 跳动。 */
+.v6-bub.is-unsent {
+  background: transparent;
+  border: 1px dashed var(--dw-bd);
+  padding: 9px 13px;
+  opacity: 0.72;
+}
+.v6-unsent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 5px;
+  font-family: var(--dw-mono);
+  font-size: 10px;
+  color: var(--dw-mu);
+}
+/* 原因文字用 warn 色: 够醒目让人知道"这条没发出去", 又不是 error 红底的"系统炸了"。 */
+.v6-unsent__label {
+  color: var(--dw-warn, var(--dw-mu));
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.v6-unsent__act {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--dw-bd);
+  background: var(--dw-sf2);
+  color: var(--dw-mu);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.v6-unsent__act:hover { background: var(--dw-sf3); color: var(--dw-fg); border-color: var(--dw-ac); }
 .v6-rnd {
   display: flex;
   align-items: center;
