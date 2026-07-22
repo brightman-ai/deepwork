@@ -364,15 +364,15 @@
              （接 @stop 调 /interrupt 中断当前生成：PTY 保进程 warm / SDK SIGINT）。未声明
              stoppable 的消费点保留旧禁用"..."（不显示点了无效的钮 — 数据诚实，同 F2）。 -->
         <!-- 在跑 + 有草稿 + 消费点接了待发队列 → 发送位换成「↳ 补充」。标签本身就说得清
-             动作(把这段话补上去)，不靠 tooltip —— 移动端没有 hover。承诺只写我们守得住的
-             那句: 提交、不中断运行; **不说"插入本轮"** —— 能否被当前轮吸收取决于上游,
-             我们观察不到, 宣称即是守不住的承诺。 -->
+             动作(把这段话补上去)，不靠 tooltip —— 移动端没有 hover。承诺只写我们守得住的:
+             queue 策略只说「提交、不中断运行」(能否吸收取决于上游, 宣称即守不住);
+             steer-first 策略可以说「尝试插入」—— 插入与否有后端 ack 可观测, 插不进必排队。 -->
         <button
           v-if="canGuide"
           type="button"
           class="as-composer__send as-composer__send--guide"
           data-testid="assistant-composer-guide"
-          title="提交，但不中断模型运行"
+          :title="guideDelivery === 'steer-first' ? '立即插入本轮；插不进会排队。不中断模型运行' : '提交，但不中断模型运行'"
           @click="submit"
         >
           ↳ 补充
@@ -525,6 +525,12 @@ const props = withDefaults(defineProps<{
   // 行为与接入前逐像素相同（chat/od/claw/topic/browser 五个消费点共用同一份壳，缺省
   // 必须绝对无副作用）。壳只负责显示与两个事件，队列状态/交付时机归消费点。
   pendingItems?: PendingSend[]
+  // WA-25 steer-at-next-toolcall（激进默认拍板）: 'guide' 事件的**交付策略**是消费点的事，
+  // 但**承诺文案**在壳里 —— 两者必须说同一句话。'queue'（默认）= 排队、本轮结束后发；
+  // 'steer-first' = 消费点先尝试插入在飞轮（显式 steer 意图），插不进自动回落排队。壳只
+  // 换 placeholder/按钮提示文字，事件流不变（仍 emit 'guide'）—— 行为与文案的一致性由
+  // 消费点用同一个开关保证。
+  guideDelivery?: 'queue' | 'steer-first'
   // ws-ux-pro 诉求 E(点击放大)/G2(已发消息内图片预览)：透传给 UserBubble，把已发消息里
   // `[图片] @path` 引用渲成可点击缩略图。默认 undefined = 不传 → UserBubble 内部
   // resolveBubbleImages 直接短路返回空数组，纯文本气泡逐像素不变（chat/od 等未接线消费点
@@ -564,6 +570,7 @@ const props = withDefaults(defineProps<{
   processTrace: false,
   cliRuntime: null,
   workspaceId: null,
+  guideDelivery: 'queue',
 })
 
 // CHG-014 S8 F2/F3: 单一 @block-action 透传协议。块声明业务 emit（artifact
@@ -910,12 +917,16 @@ const showComposerMeta = computed(() =>
   !!props.composerMeta && (!props.composerMetaHideMobile || !isNarrowViewport.value),
 )
 // streaming 态下 composer 仍可用时, placeholder 要说清 Enter 会做什么（跟常规发送不同）。
-// guidable 优先于 steerable —— 前者的说法是我们守得住的（排队 + 本轮结束后发），后者
-// 宣称"插入当前轮"，是否真被吸收由上游决定、我们观察不到。
+// guidable 优先于 steerable —— 前者的说法是我们守得住的，后者宣称"插入当前轮"是否真被
+// 吸收由上游决定、我们观察不到。steer-first 的说法同样守得住：「尝试插入」的结果可观测
+//（后端 steered ack），插不进必排队（既有 flush 机制兜底）—— 两半都是我们自己的承诺。
 const effectivePlaceholder = computed(() => {
   if (!props.streaming) return props.placeholder
   // 撞顶时说清"现在做不了什么、要先做什么"（Norman: 防错优于报错——「补充」键此刻已停用）。
   if (guidable.value && pendingFull.value) return `待发已满 ${PENDING_MAX} 条，先删掉几条再补充…`
+  if (guidable.value && props.guideDelivery === 'steer-first') {
+    return '补充会立即插入本轮，插不进自动排队…（Enter 发送 · Shift+Enter 换行）'
+  }
   if (guidable.value) return '补充内容会排队，本轮结束后合并为一条发送…（Enter 排队 · Shift+Enter 换行）'
   if (props.steerable) return '补充说明会插入当前轮…（Enter 排队 · Shift+Enter 换行）'
   return props.placeholder

@@ -47,11 +47,14 @@ export interface WorkstreamController {
   surfaceProps: ComputedRef<SurfaceProps>
   send(text: string): Promise<void>
   /**
-   * owner 对称 steer: 把补充说明插入正在跑的运行轮（POST input-events）。乐观上屏用户
-   * 气泡；AI 对补充的反应出现在已打开的主轮流上（不是这次 POST 的响应体）。当前轮不支持
-   * steer（非订阅版/传输不支持）时后端落回 error 事件，此处丢弃乐观气泡 + 报错。
+   * owner 对称 steer: 把补充说明插入正在跑的运行轮（POST input-events, 显式 steer:true）。
+   * 返回是否真的插入了在飞轮 —— false = 后端明确回「不可插入」(无在飞轮/传输不支持)，
+   * 后端**绝不**替调用方转新轮，回落成排队/新轮由调用方决定。乐观上屏用户
+   * 气泡；AI 对补充的反应出现在已打开的主轮流上（不是这次 POST 的响应体）。
+   * steer_unavailable 是**预期回落**（丢乐观气泡、静默返 false, 不设 error 横幅）；
+   * 真异常（HTTP 失败/error 事件）才设 error 横幅, 同样返 false。
    */
-  steer(text: string): Promise<void>
+  steer(text: string): Promise<boolean>
   /** Re-send the last turn that errored out (used by the surface 重试 button). */
   retry(): Promise<void>
   abort(): void
@@ -273,13 +276,15 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
 
   /**
    * owner 对称 steer: streaming 态下把补充说明插入正在跑的运行轮，而不是新开一轮。
-   * 后端 POST /api/sessions/:id/input-events 在有在飞轮时 steer 成功，SSE 回一个
-   * `{kind:'status', status:'steered', meta:{steered:true}}` 即关闭 —— AI 对这次补充的
-   * 反应出现在已打开的主轮流上（不是这个 POST 的响应体）。若后端不可 steer（非订阅版/
-   * 传输不支持）→回一个 error 事件，此处丢弃乐观气泡 + 报错，不静默吞。
+   * 请求带**显式** `steer:true`（后端契约: 传输层永不从时序猜意图）。有在飞轮且传输可注入
+   * 时后端回 `{kind:'status', status:'steered'}` 即关闭 —— AI 对这次补充的反应出现在已
+   * 打开的主轮流上（不是这个 POST 的响应体）；不可插入（无在飞轮/codex/PTY/one-shot）时
+   * 回 status:'steer_unavailable' 且**绝不隐式转新轮** → 丢乐观气泡、静默返 false ——
+   * 回落成排队/新轮由调用方决定，不是错误。真异常（HTTP 失败/error 事件）→ 丢气泡 +
+   * error 横幅 + 返 false。
    */
-  async function steer(text: string): Promise<void> {
-    if (!text.trim() || !streaming.value) return
+  async function steer(text: string): Promise<boolean> {
+    if (!text.trim() || !streaming.value) return false
     // steered:true → UserBubble 显「↩ 已插入本轮」意符, 与普通轮视觉区分(设计心理学: 可视清晰)。
     const bubble: AssistantMessage = { id: `u-steer-${Date.now()}`, role: 'user', content: text, steered: true }
     messages.value.push(bubble) // 乐观: 用户补充的话立即上屏(插入运行轮, 反应走主流)
@@ -294,7 +299,7 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
       const resp = await tracedFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, steer: true }),
       }, trace)
       if (!resp.ok) throw new Error(`插入失败 (${resp.status})`)
       let steered = false
@@ -304,11 +309,16 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
         if (ev.kind === 'error') streamErr = ev.content || ev.error || '插入失败'
       })
       if (streamErr) throw new Error(streamErr)
-      if (!steered) throw new Error('当前轮不支持插入(该运行时无法中途注入),请等待完成后再发')
+      if (!steered) {
+        drop() // 预期回落(steer_unavailable): 不设 error 横幅, 调用方接手排队/新轮
+        return false
+      }
       // steered → 保留乐观气泡; AI 对本次补充的反应会出现在已打开的主轮流上。
+      return true
     } catch (e) {
       drop()
       error.value = e instanceof Error ? e.message : '插入失败'
+      return false
     }
   }
 
