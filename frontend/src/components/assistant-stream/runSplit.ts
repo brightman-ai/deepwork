@@ -37,6 +37,17 @@ export function splitRun(msg: AssistantMessage, blocks: AssistantBlock[]): RunSp
   if (msg.runStatus && NO_ANSWER_STATUS.has(msg.runStatus)) {
     return { trace: blocks, final: [], attention: attentionOf(blocks) }
   }
+  // FinalAnswer 是**终态领域事实**（runtime 让出控制权那次迭代的文本）——不是流式快照。
+  // agentic 轮（已出现过工具/子 agent）还在跑时，尾部 text 只是下一步动作前的阶段叙述：
+  // 把它提前提拔成「答案」会造成 叙述冒充答案 → 下个工具一来又缩回过程 的反复横跳
+  // （用户实见）。所以 running 期一律留在 trace 尾流式（ProcessTrace 展开时可见），
+  // 终态帧到达后才做位置分类。纯对话轮（无工具，thinking→答案）不受影响 —— 尾部 text
+  // 照旧作为正在生成的答复直出，经典 chat 形态零回退。
+  const running = msg.streaming || msg.runStatus === 'running'
+  const agentic = blocks.some((b) => b.type === 'tool-group' || b.type === 'agent')
+  if (running && agentic) {
+    return { trace: blocks, final: [], attention: attentionOf(blocks) }
+  }
   let cut = blocks.length
   while (cut > 0 && blocks[cut - 1]?.type === 'text') cut--
   const trace = blocks.slice(0, cut)

@@ -354,14 +354,20 @@ function upsertTool(message: AssistantMessage, tool?: AssistantToolEvent): void 
     message.blocks = blocks
     return
   }
-  // First sighting of this tool id → append to the last tool-group (create if none).
-  let groupIndex = blocks.findIndex(block => block.type === 'tool-group')
-  if (groupIndex < 0) {
-    blocks.push({ type: 'tool-group', tools: [] })
-    groupIndex = blocks.length - 1
+  // First sighting of this tool id → append to the TAIL tool-group only if it is the
+  // last block; otherwise open a new group at the end. Grouping is strictly ADJACENT —
+  // a text/thinking narration between tools ends the previous group, so a multi-round
+  // run renders [叙述→工具组→叙述→工具组] in true chronological order. (The old code
+  // appended every new tool to the FIRST group via findIndex, silently flattening the
+  // whole run's tools into one bucket and destroying the interleave that the replay
+  // assembler (mapTranscript, adjacent-merge) preserves — live must match replay.)
+  const last = blocks[blocks.length - 1]
+  if (last?.type === 'tool-group') {
+    const group = last as Extract<AssistantBlock, { type: 'tool-group' }>
+    blocks[blocks.length - 1] = { type: 'tool-group', tools: [...group.tools, tool] }
+  } else {
+    blocks.push({ type: 'tool-group', tools: [tool] })
   }
-  const group = blocks[groupIndex] as Extract<AssistantBlock, { type: 'tool-group' }>
-  blocks[groupIndex] = { type: 'tool-group', tools: [...group.tools, tool] }
   message.blocks = blocks
 }
 

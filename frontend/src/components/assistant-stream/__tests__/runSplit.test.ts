@@ -180,10 +180,47 @@ describe('running（外部 CLI 仍在写这个 transcript）', () => {
     const split = { trace: [{ type: 'tool-group', tools: [] }], final: [], attention: false } as never
     expect(terminalNotice(msg, split)).toBeNull()
   })
-  test('尾部文本仍算正在生成的答复（不像 interrupted 那样被降级为叙述）', () => {
+  // 契约翻转（2026-07-22，用户实见 + WA-17/D10）：FinalAnswer 是终态领域事实，不是流式
+  // 快照。agentic 轮（已出现工具）running 期的尾部 text 是下一步动作前的阶段叙述 ——
+  // 提前提拔成「答案」会造成 叙述冒充答案→下个工具一来又缩回过程 的反复横跳。
+  // running 期它留在 trace 尾流式（运行态 trace 默认展开，仍然全程可见）。
+  test('agentic 轮 running 期尾部文本留在 trace（终态才分类为答案）', () => {
     const msg = { id: 'm', role: 'assistant', runStatus: 'running' } as never
     const blocks = [{ type: 'tool-group', tools: [] }, { type: 'text', content: '快好了' }] as never
     const s = splitRun(msg, blocks)
+    expect(s.final).toHaveLength(0)
+    expect(s.trace).toHaveLength(2)
+  })
+  test('纯对话轮（无工具）running 期尾部文本仍是正在生成的答复 —— 经典 chat 形态零回退', () => {
+    const msg = { id: 'm', role: 'assistant', runStatus: 'running' } as never
+    const blocks = [
+      { type: 'thinking', content: '想想', streaming: false },
+      { type: 'text', content: '答案正在打出来' },
+    ] as never
+    const s = splitRun(msg, blocks)
     expect(s.final).toHaveLength(1)
+    expect(s.trace).toHaveLength(1)
+  })
+  test('agentic 轮终态后，尾部文本才成为最终答案（多轮交错原时序保留在 trace）', () => {
+    const msg = { id: 'm', role: 'assistant' } as never // 无 runStatus / 非 streaming = live 已收束
+    const blocks = [
+      { type: 'text', content: '先看看文件' },
+      { type: 'tool-group', tools: [{ id: 't1', name: 'Read' }] },
+      { type: 'text', content: '再跑一下测试' },
+      { type: 'tool-group', tools: [{ id: 't2', name: 'Bash' }] },
+      { type: 'text', content: '结论：全绿' },
+    ] as never
+    const s = splitRun(msg, blocks)
+    expect(s.final).toEqual([{ type: 'text', content: '结论：全绿' }])
+    expect(s.trace).toHaveLength(4)
+    expect((s.trace as Array<{ type: string }>).map((b) => b.type)).toEqual([
+      'text', 'tool-group', 'text', 'tool-group',
+    ])
+  })
+  test('子 agent 块也算 agentic —— running 期尾部文本同样留在 trace', () => {
+    const msg = { id: 'm', role: 'assistant', streaming: true } as never
+    const blocks = [{ type: 'agent', subagentType: 'Explore' }, { type: 'text', content: '等它回来' }] as never
+    const s = splitRun(msg, blocks)
+    expect(s.final).toHaveLength(0)
   })
 })
