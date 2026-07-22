@@ -1,7 +1,11 @@
 <script setup lang="ts">
 // CHG-014 D2: 新增 msg-u 右对齐用户泡 + rnd 轮次 chip (原型 997-998)。
 // bub 中性 sf3 泡 (非彩色填充) + rnd 行 (#N chip + ‹ ›轮次切换 + 已编辑标注)。
-defineProps<{
+import { computed, ref } from 'vue'
+import ImageLightbox from '../ImageLightbox.vue'
+import { resolveBubbleImages } from './parseImageRefs'
+
+const props = defineProps<{
   content: string
   round?: number             // #N
   current?: number           // 当前 / 总数 显示
@@ -25,6 +29,11 @@ defineProps<{
   // "改个模型再发"读成"出大事了"。
   unsent?: boolean
   unsentReason?: string
+  // ws-ux-pro 诉求 E(点击放大)/G2(已发消息内图片预览): content 里的 `[图片] @path` /
+  // 含图片扩展名的裸 `@path` 引用渲染成可点击缩略图（点击开 ImageLightbox）。消费点注入
+  // rel_path→可访问URL 的解析函数；不传 = 维持纯文本，逐像素零回归——未接线的消费点
+  // （chat/od 等）连 resolveBubbleImages 内部的解析尝试都不会发生，见 parseImageRefs.ts。
+  resolveAttachmentUrl?: (path: string) => string | null
 }>()
 
 // unsent 动作**自门控**: 只有显式传 unsent 的消费点才会渲染这两个钮, 所以不存在
@@ -35,12 +44,32 @@ const emit = defineEmits<{
   (e: 'retry'): void
   (e: 'edit'): void
 }>()
+
+// 抽取逻辑本身是纯函数（parseImageRefs.ts），这里只是把 props 接进去——同 repo
+// UsageFooter.vue ↔ isThinkingWithheld 的先例，逻辑单测覆盖，组件里只留一行 computed。
+const images = computed(() => resolveBubbleImages(props.content, props.resolveAttachmentUrl))
+const lightbox = ref<{ path: string; url: string } | null>(null)
 </script>
 
 <template>
   <div class="v6-msg-u" data-testid="assistant-user-bubble">
     <div class="v6-msg-u__col">
       <div class="v6-bub" :class="{ 'is-unsent': unsent }">{{ content }}</div>
+      <!-- E/G2: 已发消息内图片缩略图行（点击放大）。resolveAttachmentUrl 未接线，或某条
+           引用解析不出 URL 时 images 为空数组，整行不渲染——文本气泡逐像素不变。 -->
+      <div v-if="images.length" class="v6-imgs" data-testid="user-bubble-images">
+        <button
+          v-for="img in images"
+          :key="img.path"
+          type="button"
+          class="v6-imgthumb"
+          :title="img.path"
+          data-testid="user-bubble-image-thumb"
+          @click="lightbox = img"
+        >
+          <img :src="img.url" :alt="img.path" loading="lazy" />
+        </button>
+      </div>
       <!-- 未发送行: 诚实说明 + 两条出路。unsent 为假时整行不渲染 → 既有消费点逐像素不变。 -->
       <div v-if="unsent" class="v6-unsent" data-testid="user-bubble-unsent">
         <span class="v6-unsent__label">未发送{{ unsentReason ? ` · ${unsentReason}` : '' }}</span>
@@ -69,6 +98,12 @@ const emit = defineEmits<{
       </div>
     </div>
   </div>
+  <ImageLightbox
+    v-if="lightbox"
+    :src="lightbox.url"
+    :alt="lightbox.path"
+    @close="lightbox = null"
+  />
 </template>
 
 <style scoped>
@@ -99,6 +134,32 @@ const emit = defineEmits<{
   border: 1px dashed var(--dw-bd);
   padding: 9px 13px;
   opacity: 0.72;
+}
+/* E/G2 缩略图行：右对齐承接气泡的右对齐基调；小方图 + 悬停高亮，点击开 ImageLightbox。 */
+.v6-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.v6-imgthumb {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--dw-bd);
+  border-radius: var(--dw-r2);
+  overflow: hidden;
+  background: var(--dw-sf2);
+  cursor: zoom-in;
+}
+.v6-imgthumb:hover { border-color: var(--dw-ac); }
+.v6-imgthumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .v6-unsent {
   display: flex;

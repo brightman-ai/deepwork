@@ -87,6 +87,7 @@
             :steered="message.steered"
             :unsent="message.status === 'failed'"
             :unsent-reason="message.error"
+            :resolve-attachment-url="resolveAttachmentUrl"
             @nav="(dir) => emit('block-action', { action: 'user-nav', block: message, message, index, payload: { dir } })"
             @retry="emit('block-action', { action: 'user-retry', block: message, message, index })"
             @edit="emit('block-action', { action: 'user-edit', block: message, message, index })"
@@ -181,97 +182,17 @@
         </div>
       </div>
 
-      <!-- 上滑读历史时不再强制跟随；新内容到了就在这儿告诉他有多少，回不回去他说了算。 -->
-      <button
-        v-if="showScrollButton"
-        type="button"
-        class="as-pane__scroll"
-        :class="{ 'as-pane__scroll--counted': pendingUpdates > 0 }"
-        data-testid="assistant-scroll-bottom"
-        @click="scrollToBottom(true)"
-      >
-        <span aria-hidden="true">↓</span>
-        <span v-if="pendingUpdates > 0" class="as-pane__scroll-label">回到最新 · {{ pendingUpdates }} 条更新</span>
-      </button>
-    </div>
-
-    <div v-if="error" class="as-pane__error" data-testid="assistant-error">
-      <span class="as-pane__error-msg">{{ error }}</span>
-      <button
-        v-if="!streaming"
-        type="button"
-        class="as-pane__error-retry"
-        data-testid="assistant-error-retry"
-        @click="emit('retry')"
-      >重试</button>
-      <button type="button" class="as-pane__error-close" aria-label="关闭" @click="emit('clear-error')">×</button>
-    </div>
-
-    <!-- ws-ux-r2 C2: quote-inject 选区浮 pill — 流内选中即现, 点击把选中文本以
-         markdown 引用块注入 draft 光标尾。Teleport body: 逃逸 overflow/transform 裁剪。 -->
-    <Teleport to="body">
-      <button
-        v-if="quotePill"
-        type="button"
-        class="as-quote-pill"
-        :style="{ left: quotePill.x + 'px', top: quotePill.y + 'px' }"
-        data-testid="assistant-quote-inject"
-        aria-label="把选中文本引用到输入框"
-        @mousedown.prevent
-        @click="insertQuote"
-      >⌯ 引用到输入</button>
-    </Teleport>
-
-    <footer v-if="!readonly" class="as-pane__composer">
-      <slot name="composerPrefix" />
-      <!-- ws-ux-r3 R2-3 / codex-review-r1 #16: composerMeta 移动端不占行 was made a
-           BLANKET rule for every Surface consumer, but only the workspace consumer's
-           placeholder actually restates the same info — Claw/Topic pass their OWN
-           meaningful metadata that has no mobile substitute. `composerMetaHideMobile`
-           (default false) makes the suppression opt-in; only the ws consumer sets it. -->
-      <div v-if="launcherItems.length || showComposerMeta" class="as-pane__composer-meta">
-        <button
-          v-if="launcherItems.length"
-          type="button"
-          class="as-pane__meta-btn"
-          @click="launcherOpen = !launcherOpen"
-        >
-          +
-        </button>
-        <span v-if="showComposerMeta">{{ composerMeta }}</span>
-      </div>
-      <!-- ws-ux-r3 R1: 附件 chip 行 (仅 allowAttach 且有附件时出现 — 零附件零占位)。 -->
-      <div v-if="allowAttach && attachments.length" class="as-attach" data-testid="assistant-attachments">
-        <span
-          v-for="a in attachments"
-          :key="a.id"
-          class="as-attach__chip"
-          :class="{ 'is-error': a.status === 'error', 'is-uploading': a.status === 'uploading' }"
-          :title="a.error || a.name"
-        >
-          <img v-if="a.previewUrl" class="as-attach__thumb" :src="a.previewUrl" alt="" />
-          <span v-else aria-hidden="true">🖼</span>
-          <span class="as-attach__name">{{ a.name }}</span>
-          <span v-if="a.status === 'uploading'" class="as-attach__spin" aria-label="上传中" />
-          <button
-            type="button"
-            class="as-attach__x"
-            :aria-label="`移除 ${a.name}`"
-            @click="emit('attach-remove', a.id)"
-          >×</button>
-        </span>
-      </div>
-      <!-- 待发队列 (opt-in: 消费点传了 pendingItems 才存在)。位置 = env row 之下、输入框
-           之上 —— Gestalt 邻近律: 它属于"我将要发出去的东西", 不是对话内容, 所以贴着
-           composer 而不是待在时间线里。
-           状态说明写在这一行上而非只在 tooltip 里: 移动端没有 hover, 含义不能只活在
-           title 属性中 (Norman: 意符必须可见)。 -->
-      <div v-if="pendingRows.length" class="as-pending" data-testid="assistant-pending">
+      <!-- 待发队列 = 时间线内"上屏"的幽灵气泡（2026-07-22，对标 codex 排队表征；推翻
+           此前"贴 composer"的位置决策——用户实测那是条会被附件/浮层淹没的窄 banner，
+           "发了但看不见"）。语义没变：这是【将要】进入对话的内容，所以它站在对话
+           将要生长的位置（时间线尾、右对齐如用户气泡），虚线+低饱和表"未发出"。
+           行仍是常驻 input（编辑即写）；SSOT 队列/flush 逻辑在消费点，未动。 -->
+      <div v-if="pendingRows.length" class="as-pending as-pending--inline" data-testid="assistant-pending">
         <div class="as-pending__cap">
           <!-- 说"合并为一条"而不是"自动发送": 屏幕上是 N 张卡片、发出去是 1 个气泡 N 行,
                这个转换必须先讲清楚, 否则用户的心智模型和系统行为对不上(Norman)。 -->
           <span class="as-pending__cap-text">
-            待发 {{ pendingCount }} 条 ·
+            ↳ 待发 {{ pendingCount }} 条 ·
             {{ pendingCount > 1 ? '本轮结束后合并为一条发送' : '本轮结束后自动发送' }}
           </span>
           <button
@@ -317,6 +238,93 @@
             >×</button>
           </div>
         </div>
+      </div>
+
+      <!-- 上滑读历史时不再强制跟随；新内容到了就在这儿告诉他有多少，回不回去他说了算。 -->
+      <button
+        v-if="showScrollButton"
+        type="button"
+        class="as-pane__scroll"
+        :class="{ 'as-pane__scroll--counted': pendingUpdates > 0 }"
+        data-testid="assistant-scroll-bottom"
+        @click="scrollToBottom(true)"
+      >
+        <span aria-hidden="true">↓</span>
+        <span v-if="pendingUpdates > 0" class="as-pane__scroll-label">回到最新 · {{ pendingUpdates }} 条更新</span>
+      </button>
+    </div>
+
+    <div v-if="error" class="as-pane__error" data-testid="assistant-error">
+      <span class="as-pane__error-msg">{{ error }}</span>
+      <button
+        v-if="!streaming"
+        type="button"
+        class="as-pane__error-retry"
+        data-testid="assistant-error-retry"
+        @click="emit('retry')"
+      >重试</button>
+      <button type="button" class="as-pane__error-close" aria-label="关闭" @click="emit('clear-error')">×</button>
+    </div>
+
+    <!-- ws-ux-r2 C2: quote-inject 选区浮 pill — 流内选中即现, 点击把选中文本以
+         markdown 引用块注入 draft 光标尾。Teleport body: 逃逸 overflow/transform 裁剪。 -->
+    <Teleport to="body">
+      <button
+        v-if="quotePill"
+        type="button"
+        class="as-quote-pill"
+        :style="{ left: quotePill.x + 'px', top: quotePill.y + 'px' }"
+        data-testid="assistant-quote-inject"
+        aria-label="把选中文本引用到输入框"
+        @mousedown.prevent
+        @click="insertQuote"
+      >⌯ 引用到输入</button>
+    </Teleport>
+
+    <!-- 只读态说明行：readonly 时整个 composer 不渲染，但"为什么不能输入/什么时候能"
+         不能是空白（Norman: 状态须可见）。消费点传 readonlyNotice 才占位——外部观测
+        （"◉ 外部 CLI 正在驱动…停止后可在此续接"）、子 agent 转录等各自给话。 -->
+    <div v-if="readonly && readonlyNotice" class="as-pane__ro-notice" data-testid="assistant-readonly-notice">
+      {{ readonlyNotice }}
+    </div>
+    <footer v-if="!readonly" class="as-pane__composer">
+      <slot name="composerPrefix" />
+      <!-- ws-ux-r3 R2-3 / codex-review-r1 #16: composerMeta 移动端不占行 was made a
+           BLANKET rule for every Surface consumer, but only the workspace consumer's
+           placeholder actually restates the same info — Claw/Topic pass their OWN
+           meaningful metadata that has no mobile substitute. `composerMetaHideMobile`
+           (default false) makes the suppression opt-in; only the ws consumer sets it. -->
+      <div v-if="launcherItems.length || showComposerMeta" class="as-pane__composer-meta">
+        <button
+          v-if="launcherItems.length"
+          type="button"
+          class="as-pane__meta-btn"
+          @click="launcherOpen = !launcherOpen"
+        >
+          +
+        </button>
+        <span v-if="showComposerMeta">{{ composerMeta }}</span>
+      </div>
+      <!-- ws-ux-r3 R1: 附件 chip 行 (仅 allowAttach 且有附件时出现 — 零附件零占位)。 -->
+      <div v-if="allowAttach && attachments.length" class="as-attach" data-testid="assistant-attachments">
+        <span
+          v-for="a in attachments"
+          :key="a.id"
+          class="as-attach__chip"
+          :class="{ 'is-error': a.status === 'error', 'is-uploading': a.status === 'uploading' }"
+          :title="a.error || a.name"
+        >
+          <img v-if="a.previewUrl" class="as-attach__thumb" :src="a.previewUrl" alt="" />
+          <span v-else aria-hidden="true">🖼</span>
+          <span class="as-attach__name">{{ a.name }}</span>
+          <span v-if="a.status === 'uploading'" class="as-attach__spin" aria-label="上传中" />
+          <button
+            type="button"
+            class="as-attach__x"
+            :aria-label="`移除 ${a.name}`"
+            @click="emit('attach-remove', a.id)"
+          >×</button>
+        </span>
       </div>
       <div class="as-composer">
         <button
@@ -478,6 +486,9 @@ const props = withDefaults(defineProps<{
   error?: string
   disabled?: boolean
   readonly?: boolean
+  // 只读态说明行（readonly=true 时代替 composer 占位的一句人话）。缺省不渲染 ——
+  // 每个只读消费点自己说清"为什么只读/什么时候能写"（外部观测/子 agent 转录/分享）。
+  readonlyNotice?: string
   density?: AssistantDensity
   showHeader?: boolean
   // F2: 消费点接线了 @block-action 处理 → 置 true 才渲染块内动作钮（审批/产物导出等）。
@@ -514,6 +525,11 @@ const props = withDefaults(defineProps<{
   // 行为与接入前逐像素相同（chat/od/claw/topic/browser 五个消费点共用同一份壳，缺省
   // 必须绝对无副作用）。壳只负责显示与两个事件，队列状态/交付时机归消费点。
   pendingItems?: PendingSend[]
+  // ws-ux-pro 诉求 E(点击放大)/G2(已发消息内图片预览)：透传给 UserBubble，把已发消息里
+  // `[图片] @path` 引用渲成可点击缩略图。默认 undefined = 不传 → UserBubble 内部
+  // resolveBubbleImages 直接短路返回空数组，纯文本气泡逐像素不变（chat/od 等未接线消费点
+  // 零回归，见 UserBubble.vue / parseImageRefs.ts）。
+  resolveAttachmentUrl?: (path: string) => string | null
 }>(), {
   messages: () => [],
   sessionId: null,
@@ -611,15 +627,42 @@ function onComposerPaste(e: ClipboardEvent): void {
     .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
     .map((it) => it.getAsFile())
     .filter((f): f is File => !!f)
-  if (!files.length) return // 文本粘贴不拦
-  e.preventDefault()
-  emit('attach-files', files)
-  // codex-review-r1 #17: a mixed clipboard payload (image + text — e.g. a screenshot
-  // copied alongside a caption) previously lost the text entirely, because
-  // preventDefault() also suppresses the browser's native paste-insert. Manually splice
-  // the text/plain payload in at the caret so neither the image nor the text is dropped.
-  const text = e.clipboardData?.getData('text/plain') ?? ''
-  if (text) insertTextAtCaret(text)
+  if (files.length) {
+    e.preventDefault()
+    emit('attach-files', files)
+    // codex-review-r1 #17: a mixed clipboard payload (image + text — e.g. a screenshot
+    // copied alongside a caption) previously lost the text entirely, because
+    // preventDefault() also suppresses the browser's native paste-insert. Manually splice
+    // the text/plain payload in at the caret so neither the image nor the text is dropped.
+    const text = e.clipboardData?.getData('text/plain') ?? ''
+    if (text) insertTextAtCaret(text)
+    return
+  }
+  // ws-ux-r3-batch2 B1: some OS screenshot tools populate the system clipboard in a form
+  // the SYNCHRONOUS ClipboardEvent#clipboardData API doesn't surface as a file item (host/
+  // browser dependent) even though an image is genuinely on the clipboard. We deliberately
+  // did NOT preventDefault() above, so any plain text on the clipboard has already been
+  // inserted natively by the browser — this is a pure bonus probe via the async Clipboard
+  // API, run AFTER that native insert, not a replacement for it. Permission denial /
+  // background-tab focus loss / unsupported browser all reject — swallow silently (no
+  // error banner) so a plain text-only paste is never disturbed by a failed image probe.
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.read) return
+  void (async () => {
+    try {
+      const clipItems = await navigator.clipboard.read()
+      const imageFiles: File[] = []
+      for (const item of clipItems) {
+        const imgType = item.types.find((t) => t.startsWith('image/'))
+        if (!imgType) continue
+        const blob = await item.getType(imgType)
+        const ext = imgType.split('/')[1] || 'png'
+        imageFiles.push(new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imgType }))
+      }
+      if (imageFiles.length) emit('attach-files', imageFiles)
+    } catch {
+      // 权限拒绝 / 未聚焦 / 不支持 async clipboard —— 优雅降级, 静默放弃。
+    }
+  })()
 }
 
 // codex-review-r1 #17: insert text at the current caret (or append if the textarea/
@@ -804,7 +847,16 @@ function onTimelineTouchMove(event: TouchEvent): void {
 
 const contextItems = computed(() => props.contextItems ?? [])
 const launcherItems = computed(() => props.launcherItems ?? [])
-const canSend = computed(() => !props.disabled && !props.streaming && draft.value.trim().length > 0)
+// ws-ux-r3-batch2 G2 (纯图可发): allowAttach 且已有 ready 附件时, 空草稿也构成一次合法
+// 发送 ("只发图, 不写说明") —— 消费点 (WS) 会在 send 之后把 @rel_path 引用拼进正文,
+// 不是发一个空轮次。未开 allowAttach 的消费点 (chat/od/claw/topic/browser) attachments
+// 恒为 [] → 这条 OR 分支恒假, 与它们逐像素无关。
+const hasReadyAttachment = computed(() =>
+  props.allowAttach && props.attachments.some((a) => a.status === 'ready'),
+)
+const canSend = computed(() =>
+  !props.disabled && !props.streaming && (draft.value.trim().length > 0 || hasReadyAttachment.value),
+)
 // ── 待发队列（能力 opt-in）─────────────────────────────────────────────────────
 // guidable: 消费点传了 pendingItems ⇒ 它承诺"轮次结束时把队列发出去"。未传 ⇒ 全套待发
 // 机制在本壳内不存在（零渲染、零行为差异）。
@@ -945,7 +997,11 @@ function runSplitOf(message: AssistantMessage): RunSplit {
   // 装配方已把结果与过程分开（finalBlocks 存在）→ trace 只能是过程块。走 blocksForMessage
   // 会把它的平铺兜底（过程+结果拼接）当成过程，答案就会在 trace 里重复出现一遍。
   const blocks = message.finalBlocks !== undefined ? (message.blocks ?? []) : blocksForMessage(message)
-  const key = `${blocks.length}:${message.streaming ? 1 : 0}:${message.finalBlocks?.length ?? -1}`
+  // 尾块内容长度必须参与 key：流式期 text/thinking 增量只改尾块 content、不改块数 ——
+  // 只按块数记忆化会让 trace 尾叙述/正在生成的答复冻在缓存里，直到下一个块出现才跳变。
+  const tailContent = (blocks[blocks.length - 1] as { content?: unknown } | undefined)?.content
+  const tailLen = typeof tailContent === 'string' ? tailContent.length : 0
+  const key = `${blocks.length}:${tailLen}:${message.streaming ? 1 : 0}:${message.finalBlocks?.length ?? -1}`
   const hit = splitCache.get(message.id)
   if (hit && hit.key === key) return hit.split
   const split = splitRun(message, blocks)
@@ -992,7 +1048,12 @@ function shouldShowFooter(message: AssistantMessage): boolean {
 
 function submit(): void {
   const text = draft.value.trim()
-  if (!text) return
+  // ws-ux-r3-batch2 G2: 空草稿 + 已有 ready 附件(allowAttach) → 仍是一次合法发送。这条
+  // 放宽只适用于下面「非 streaming 的常规发送」分支 —— streaming 期的排队/steer 是"对
+  // 正在跑的轮次做补充", 一段空字符串不构成有意义的补充, 第二个 guard 把这两条分支的
+  // 入口也堵死 (否则会排进一条空文字的待发项)。
+  if (!text && !hasReadyAttachment.value) return
+  if (!text && props.streaming) return
   // 待发队列: streaming 期提交 = 排队, 不发请求、不碰正在跑的轮次。交付由消费点在轮次
   // 结束时兑现（它承诺过, 见 pendingItems 注释）。焦点留在输入框 —— 补充常常不止一条,
   // 连写第二条不该还要再点一次输入区。
@@ -1142,6 +1203,10 @@ defineExpose({
     textareaRef.value?.focus()
   },
   scrollToBottom,
+  // ws-ux-r3-batch2 F: 消费点(RunPane→adapter)在附件转 ready 时调用, 把可编辑的
+  // `[图片] @rel_path ` token 插入光标处（与 C2 quote-inject/#17 混合剪贴板走的是同一个
+  // 内部函数, 这里只是把它对外暴露)。
+  insertTextAtCaret,
 })
 
 // Resolves which block component to render for a given block type.
@@ -1709,6 +1774,21 @@ function renderMarkdown(value: unknown): string {
   border-radius: 8px;
   background: var(--dw-ac-dim);
   overflow: hidden;
+}
+/* 时间线内"上屏"变体：站在对话将要生长的位置，右对齐如用户气泡；虚线 = 尚未发出。 */
+.as-pending--inline {
+  margin: 2px 0 10px auto;
+  width: min(560px, 86%);
+  border-style: dashed;
+}
+/* 只读态说明行：安静、居中、不可交互 —— 解释"为什么没有输入框"。 */
+.as-pane__ro-notice {
+  flex: none;
+  padding: 8px 14px;
+  border-top: 1px solid var(--dw-bd);
+  color: var(--dw-mu);
+  font-size: 12px;
+  text-align: center;
 }
 .as-pending__cap {
   display: flex; align-items: center; gap: 8px;
