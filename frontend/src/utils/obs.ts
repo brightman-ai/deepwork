@@ -55,6 +55,23 @@ interface RemoteSinkConfig {
   minRemoteLevel: LogLevel
   enabled: boolean
   bridgeConsole: boolean
+  /**
+   * Extra headers for the ingest request, resolved at send time.
+   *
+   * This shell is embedded by hosts that guard their API differently — deepwork-terminal requires
+   * an `X-CLI-Auth` code on EVERY request, by explicit design ("no exceptions, no heuristics"),
+   * while others rely on a session cookie that rides along automatically. Without a way to say so,
+   * the sink POSTs unauthenticated and the host answers 401; because observability is fire-and-
+   * forget by design, that failure is invisible. deepwork-terminal ran that way for its whole
+   * life: `configureRemoteSink()` at boot, every INFO line dropped at the door, and a renderer
+   * question that should have been one log line instead needed a purpose-built benchmark.
+   *
+   * A callback, not a fixed object: an auth code can be entered, rotated or cleared mid-session,
+   * and a value captured at configure() time would go stale exactly when it matters. Mechanism
+   * lives here; the policy (which header, from where) stays with the host — this module must not
+   * learn any particular scheme.
+   */
+  headers: (() => Record<string, string>) | null
 }
 
 // --- Level filtering ---
@@ -68,6 +85,7 @@ let remoteSink: RemoteSinkConfig = {
   minRemoteLevel: 'INFO',
   enabled: true,
   bridgeConsole: true,
+  headers: null,
 }
 let remoteTimer: ReturnType<typeof setTimeout> | null = null
 let remoteInstalled = false
@@ -467,10 +485,20 @@ function sendEnvelope(envelope: IngestEnvelope, preferBeacon: boolean): void {
   // only honest thing to do when there is no origin to POST to.
   if (typeof window === 'undefined') return
   const body = JSON.stringify(envelope)
+  const extraHeaders = remoteSink.headers?.() ?? {}
 
-  if (preferBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+  // sendBeacon cannot carry request headers — it is a body and a URL, nothing else. So a host that
+  // needs headers (auth) must not take this path: the beacon would be sent, `ok` would be true,
+  // the host would answer 401, and the batch would be lost with every local signal saying it went
+  // fine. `keepalive: true` on the fetch below covers what beacon was here for (surviving unload),
+  // so the fallback is a real one rather than a downgrade.
+  const canBeacon = Object.keys(extraHeaders).length === 0
+  if (preferBeacon && canBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    // apiUrl(), not the raw endpoint: a host serving its API under a base path (window.__DW_API_BASE)
+    // had the fetch path resolved and the beacon path not — so the unload flush, the one carrying
+    // the last words of a crashing page, was the one aimed at the wrong URL.
     const ok = navigator.sendBeacon(
-      remoteSink.endpoint,
+      apiUrl(remoteSink.endpoint),
       new Blob([body], { type: 'application/json' }),
     )
     if (ok) return
@@ -478,7 +506,9 @@ function sendEnvelope(envelope: IngestEnvelope, preferBeacon: boolean): void {
 
   void fetch(apiUrl(remoteSink.endpoint), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // Content-Type last would let a host's header override it and break ingest; it is written
+    // after the host's, so the envelope's encoding is never negotiable.
+    headers: { ...extraHeaders, 'Content-Type': 'application/json' },
     body,
     keepalive: true,
   }).catch(() => {
