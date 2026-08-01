@@ -83,6 +83,10 @@ export interface AssistantStripBlock {
 // PermissionBlock 直接从 block 读取这些字段，三处 (types/registry/组件) 契约一致。
 export interface AssistantPermissionBlock {
   type: 'permission'
+  id?: string
+  status?: string
+  capabilities?: string[]
+  risk?: string
   // 兼容字段（旧 permission 形态）：纯文本提示 + 效果分级标签
   content?: string           // 标题文本（缺则用 title）
   effectClass?: string       // 命令体/效果（缺则用 command）
@@ -107,7 +111,12 @@ export interface AssistantLiveHeadBlock {
 // artcard 产物卡 (OD)
 export interface AssistantArtifactBlock {
   type: 'artifact'
+  id?: string
   name: string               // 文件名
+  contentType?: string
+  // Generic workstream projection retains streamed content so an owning Portal
+  // can open/export it without maintaining a second artifact accumulator.
+  content?: string
   version?: string           // v=mtime badge
   landed?: boolean           // 文件落盘
   done?: boolean             // ✓ 完成 (streaming 期禁导出)

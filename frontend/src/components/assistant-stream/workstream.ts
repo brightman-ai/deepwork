@@ -13,6 +13,17 @@ import type {
 // 绝不盖 usage.model 权威值、不覆盖已有 runtime.model；messages 数组被丢弃时整个条目自动 GC。
 const pendingModelFallback = new WeakMap<AssistantMessage[], string>()
 
+// Mirrors kit/workstream.AllKinds(). The integrated host contract test compares
+// this machine-readable list with the Go manifest, so adding a backend kind
+// without teaching this reducer is a build failure rather than a silent drop.
+export const WORKSTREAM_KINDS = [
+  'artifact_delta', 'artifact_done', 'artifact_start', 'context_done', 'context_start',
+  'done', 'error', 'meta', 'permission_request', 'permission_resolved',
+  'projection_done', 'projection_start', 'raw', 'skill_result', 'skill_start',
+  'status', 'task_update', 'text', 'thinking', 'tool_result', 'tool_start', 'usage',
+] as const
+export type WorkstreamKind = typeof WORKSTREAM_KINDS[number]
+
 export interface AssistantWorkstreamEvent {
   kind: string
   status?: string
@@ -26,6 +37,33 @@ export interface AssistantWorkstreamEvent {
   task?: {
     items?: AssistantTaskItem[]
     title?: string
+    status?: string
+  }
+  artifact?: {
+    id?: string
+    name?: string
+    content_type?: string
+    delta?: string
+    complete?: boolean
+  }
+  context?: {
+    id?: string
+    kind?: string
+    title?: string
+    scope?: string
+    summary?: string
+  }
+  projection?: {
+    id?: string
+    kind?: string
+    target?: string
+    status?: string
+  }
+  permission?: {
+    id?: string
+    capabilities?: string[]
+    summary?: string
+    risk?: string
     status?: string
   }
   usage?: Record<string, unknown>
@@ -124,6 +162,22 @@ function applyWorkstreamEvent(
       options.setWaitingStatus?.('上下文就绪')
       if (current) updateWaitingStatus(current, '上下文就绪', options.streamingStartedAt)
       return current
+    case 'projection_start': {
+      const label = event.projection?.target
+        ? `正在投影至 ${event.projection.target}`
+        : '正在投影结果'
+      options.setWaitingStatus?.(label)
+      if (current) updateWaitingStatus(current, label, options.streamingStartedAt)
+      return current
+    }
+    case 'projection_done': {
+      const label = event.projection?.target
+        ? `已投影至 ${event.projection.target}`
+        : '结果投影完成'
+      options.setWaitingStatus?.(label)
+      if (current) updateWaitingStatus(current, label, options.streamingStartedAt)
+      return current
+    }
     case 'text': {
       const msg = ensureAssistantMessage(current, options)
       appendText(msg, event.content || '', options)
@@ -149,6 +203,13 @@ function applyWorkstreamEvent(
       upsertTool(msg, normalizeToolEvent(event, event.kind === 'skill_result' ? 'Skill' : 'Tool', options, true))
       return msg
     }
+    case 'artifact_start':
+    case 'artifact_delta':
+    case 'artifact_done': {
+      const msg = ensureAssistantMessage(current, options)
+      upsertArtifact(msg, event, event.kind)
+      return msg
+    }
     case 'usage': {
       const msg = ensureAssistantMessage(current, options)
       msg.live_usage = usageFrom(event)
@@ -156,11 +217,12 @@ function applyWorkstreamEvent(
     }
     case 'permission_request': {
       const msg = ensureAssistantMessage(current, options)
-      appendBlock(msg, {
-        type: 'permission',
-        content: event.content || event.name || '需要用户确认',
-        effectClass: typeof event.meta?.effect_class === 'string' ? event.meta.effect_class : undefined,
-      })
+      upsertPermission(msg, event, false)
+      return msg
+    }
+    case 'permission_resolved': {
+      const msg = ensureAssistantMessage(current, options)
+      upsertPermission(msg, event, true)
       return msg
     }
     case 'task_update': {
@@ -192,9 +254,23 @@ function applyWorkstreamEvent(
       }
       return current
     }
+    // Raw is intentionally an escape hatch with no generic UI projection. Meta
+    // is consumed by the wrapper above (for example model_fallback). Keeping
+    // explicit arms distinguishes deliberate transport-only events from drift.
+    case 'raw':
+    case 'meta':
+      return current
     default:
+      warnUnknownKind(event.kind)
       return current
   }
+}
+
+const warnedUnknownKinds = new Set<string>()
+function warnUnknownKind(kind: string): void {
+  if (warnedUnknownKinds.has(kind)) return
+  warnedUnknownKinds.add(kind)
+  console.warn(`[workstream] unhandled event kind: ${kind}`)
 }
 
 export function defaultAssistantWorkstreamStatusLabel(status: string): string {
@@ -327,6 +403,74 @@ function appendThinking(
 
 function appendBlock(message: AssistantMessage, block: AssistantBlock): void {
   message.blocks = [...removeWaitingBlocks(message.blocks ?? []), block]
+}
+
+function upsertArtifact(
+  message: AssistantMessage,
+  event: AssistantWorkstreamEvent,
+  phase: 'artifact_start' | 'artifact_delta' | 'artifact_done',
+): void {
+  const raw = event.artifact ?? {}
+  const key = raw.id || raw.name
+  const blocks = removeWaitingBlocks([...(message.blocks ?? [])])
+  const index = blocks.findIndex((block) => {
+    if (block.type !== 'artifact') return false
+    const artifact = block as Extract<AssistantBlock, { type: 'artifact' }>
+    return key ? artifact.id === key || artifact.name === key : false
+  })
+  const previous = index >= 0
+    ? blocks[index] as Extract<AssistantBlock, { type: 'artifact' }>
+    : undefined
+  const done = phase === 'artifact_done' || raw.complete === true
+  const next: Extract<AssistantBlock, { type: 'artifact' }> = {
+    type: 'artifact',
+    id: raw.id ?? previous?.id,
+    name: raw.name || previous?.name || raw.id || '未命名产物',
+    contentType: raw.content_type ?? previous?.contentType,
+    content: `${previous?.content ?? ''}${raw.delta ?? ''}` || undefined,
+    landed: previous?.landed,
+    version: previous?.version,
+    done,
+    streaming: !done,
+  }
+  if (index >= 0) blocks[index] = next
+  else blocks.push(next)
+  message.blocks = blocks
+}
+
+function upsertPermission(
+  message: AssistantMessage,
+  event: AssistantWorkstreamEvent,
+  resolved: boolean,
+): void {
+  const raw = event.permission ?? {}
+  const blocks = removeWaitingBlocks([...(message.blocks ?? [])])
+  const index = raw.id
+    ? blocks.findIndex((block) => block.type === 'permission'
+      && (block as Extract<AssistantBlock, { type: 'permission' }>).id === raw.id)
+    : -1
+  const previous = index >= 0
+    ? blocks[index] as Extract<AssistantBlock, { type: 'permission' }>
+    : undefined
+  const next: Extract<AssistantBlock, { type: 'permission' }> = {
+    type: 'permission',
+    id: raw.id ?? previous?.id,
+    status: raw.status || previous?.status || (resolved ? 'resolved' : 'pending'),
+    capabilities: raw.capabilities ?? previous?.capabilities,
+    risk: raw.risk ?? previous?.risk,
+    content: raw.summary || event.content || previous?.content || event.name || '需要用户确认',
+    effectClass: typeof event.meta?.effect_class === 'string'
+      ? event.meta.effect_class
+      : previous?.effectClass || raw.risk,
+    tool: previous?.tool || raw.capabilities?.join(' · '),
+    title: previous?.title,
+    command: previous?.command,
+    waited: previous?.waited,
+    alwaysLabel: previous?.alwaysLabel,
+  }
+  if (index >= 0) blocks[index] = next
+  else blocks.push(next)
+  message.blocks = blocks
 }
 
 // upsertTool merges one tool lifecycle event into the message BY TOOL ID. A single

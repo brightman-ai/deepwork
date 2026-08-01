@@ -23,6 +23,18 @@ const emit = defineEmits<{
 // 标题/命令双源回退：approval 形态用 title/command，旧 permission 形态用 content/effectClass。
 const heading = computed(() => props.block.title || props.block.content || '需要确认')
 const commandBody = computed(() => props.block.command || props.block.effectClass || '')
+const resolved = computed(() => !!props.block.status && props.block.status !== 'pending' && props.block.status !== 'requested')
+const resolutionLabel = computed(() => {
+  switch (props.block.status) {
+    case 'approved':
+    case 'allowed': return '已允许'
+    case 'denied':
+    case 'rejected': return '已拒绝'
+    case 'canceled':
+    case 'cancelled': return '已取消'
+    default: return resolved.value ? props.block.status : ''
+  }
+})
 </script>
 
 <template>
@@ -31,9 +43,10 @@ const commandBody = computed(() => props.block.command || props.block.effectClas
       <span class="v6-chip v6-chip--appr">{{ props.block.tool || '需要审批' }}</span>
       <b>{{ heading }}</b>
       <span v-if="props.block.waited" class="v6-appr__wait">等待 {{ props.block.waited }}</span>
+      <span v-else-if="resolutionLabel" class="v6-appr__wait">{{ resolutionLabel }}</span>
     </div>
     <div v-if="commandBody" class="v6-appr__cmd">{{ commandBody }}</div>
-    <div v-if="props.actionable" class="v6-appr__bts">
+    <div v-if="props.actionable && !resolved" class="v6-appr__bts">
       <button type="button" class="v6-appr__y" data-testid="permission-allow-once" @click="emit('allow-once')">允许一次</button>
       <button type="button" class="v6-appr__a" data-testid="permission-allow-always" @click="emit('allow-always')">{{ props.block.alwaysLabel || '总是允许' }}</button>
       <button type="button" class="v6-appr__n" data-testid="permission-deny" @click="emit('deny')">拒绝</button>
