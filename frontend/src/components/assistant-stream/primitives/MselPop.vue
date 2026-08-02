@@ -84,11 +84,11 @@ const emit = defineEmits<{
   border-radius: var(--dw-r);
   cursor: pointer;
   font-size: 11.5px;
-  color: var(--dw-mu);
+  color: var(--dw-fg);
 }
 .v6-msel-it:hover { background: var(--dw-sf3); color: var(--dw-fg); }
 .v6-msel-it.on { background: var(--dw-ac-dim); color: var(--dw-ac); }
-.v6-msel-it span { font-size: 9.5px; opacity: 0.75; }
+.v6-msel-it span { font-size: 9.5px; color: var(--dw-mu); }
 /* 不可用项: 与 RuntimePicker 的 .rtpick__row--off / SettingsSupplyMatrix 的 .sm__rt--off
    同一视觉语言 (降透明度), 让「点了能用」和「点了会把你送去配置」一眼可分。仍可点 —
    点击语义由装配方决定 (通常是引导去配置/新建会话)。 */

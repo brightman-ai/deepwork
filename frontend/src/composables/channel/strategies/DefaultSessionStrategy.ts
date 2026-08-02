@@ -90,6 +90,9 @@ export interface DefaultSessionStrategyOptions {
    * CHG-015: reasoning effort tier ("low"|"medium"|"high") forwarded to input-events.
    */
   effort?: (() => string) | string
+  /** CLI permission/approval mode forwarded to input-events. When this option is
+   * present, an empty string is sent deliberately to clear a prior override. */
+  approvalMode?: (() => string) | string
   /**
    * W1 fix: per-turn outbound model id forwarded to input-events (`model`). This is the
    * "切模型" signal — the backend reconciles it onto session.ModelID
@@ -263,6 +266,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
   private get memoryOn() { return resolveValue(this.opts.memoryOn) }
   private get roleId() { return resolveValue(this.opts.roleId) ?? '' }
   private get effort() { return resolveValue(this.opts.effort) ?? '' }
+  private get approvalMode() { return resolveValue(this.opts.approvalMode) ?? '' }
   private get model() { return resolveValue(this.opts.model) ?? '' }
   private get providerAccountId() { return resolveValue(this.opts.providerAccountId) ?? '' }
   private get visionAssistModelId() { return resolveValue(this.opts.visionAssistModelId) ?? '' }
@@ -316,34 +320,37 @@ export class DefaultSessionStrategy implements SessionStrategy {
     const memoryOn = this.memoryOn
     const roleId = this.roleId
     const effort = this.effort
+    const approvalMode = this.approvalMode
     const model = this.model
     const providerAccountId = this.providerAccountId
     const visionAssistModelId = this.visionAssistModelId
     const images = this.images
-    return {
-      url: `/api/sessions/${sessionId}/input-events`,
-      body: {
-        message: text,
-        tool_mode: toolMode || undefined,
-        allowed_tools: allowedTools.length ? allowedTools : undefined,
-        memory_on: memoryOn,
-        // CHG-015: chat selectors — omitted when empty so ws/topic/claw are unaffected.
-        role_id: roleId || undefined,
-        effort: effort || undefined,
-        // W1 fix: per-turn outbound model — omitted when empty (callers that bake the
-        // model at create time send none). The backend reconciles it onto session.ModelID
-        // so a mid-session 切模型 actually changes the outbound model.
-        model: model || undefined,
-        // 跨 provider 切模型 fix: the account that backs `model`. The backend reconciles
-        // it onto session.ProviderAccountID so the outbound ENDPOINT moves with the model
-        // (else a model on a different provider hits the old provider's endpoint → 400).
-        // Omitted when empty (CLI/subscription dispatch + create-time-baked callers).
-        provider_account_id: providerAccountId || undefined,
-        vision_assist_model_id: visionAssistModelId || undefined,
-        // CHG-015 需求8: image attachments — omitted when empty (ws/topic/claw send none).
-        images: images.length ? images : undefined,
-      },
+    const body: Record<string, unknown> = {
+      message: text,
+      tool_mode: toolMode || undefined,
+      allowed_tools: allowedTools.length ? allowedTools : undefined,
+      memory_on: memoryOn,
+      // CHG-015: chat selectors — omitted when empty so ws/topic/claw are unaffected.
+      role_id: roleId || undefined,
+      // W1 fix: per-turn outbound model — omitted when empty (callers that bake the
+      // model at create time send none). The backend reconciles it onto session.ModelID
+      // so a mid-session 切模型 actually changes the outbound model.
+      model: model || undefined,
+      // 跨 provider 切模型 fix: the account that backs `model`. The backend reconciles
+      // it onto session.ProviderAccountID so the outbound ENDPOINT moves with the model
+      // (else a model on a different provider hits the old provider's endpoint → 400).
+      // Omitted when empty (CLI/subscription dispatch + create-time-baked callers).
+      provider_account_id: providerAccountId || undefined,
+      vision_assist_model_id: visionAssistModelId || undefined,
+      // CHG-015 需求8: image attachments — omitted when empty (ws/topic/claw send none).
+      images: images.length ? images : undefined,
     }
+    // Presence is semantic: callers that own these controls must be able to clear
+    // them back to the runtime default with an explicit empty value. Callers that
+    // do not own the controls omit the keys entirely.
+    if (this.opts.effort !== undefined) body.effort = effort
+    if (this.opts.approvalMode !== undefined) body.approval_mode = approvalMode
+    return { url: `/api/sessions/${sessionId}/input-events`, body }
   }
 
   async loadHistory(sessionId: number | string): Promise<AssistantMessage[]> {

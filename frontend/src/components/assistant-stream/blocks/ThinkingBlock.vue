@@ -8,16 +8,15 @@ let thinkSeq = 0
 // 原型行 1090 / CSS .chip.ch-think + .bprev + .sbl 卷收 (open class)。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AssistantBlock } from '../types'
+import { thinkingPresentation } from '../thinkingPresentation'
 
 const props = defineProps<{
   block: Extract<AssistantBlock, { type: 'thinking' }>
   streaming?: boolean
 }>()
 
-// 流式 thinking 默认展开（逐字可见的 live 思考），思考结束（block.streaming=false，由
-// reducer 在 text 开始 / done 时翻转）自动折叠为 chip+预览（转录整洁）。用户点击 = 显式
-// pin，覆盖自动默认。这是「过程 thinking 有效呈现」的关键修复：此前 ref(false) 默认折叠，
-// 流式思考内容藏在折叠体里，用户只看到状态空转 → 误判「无流式」。
+// 流式 thinking 默认展开，思考结束后自动折叠。只投影状态、耗时和安全说明；原始
+// chain-of-thought 是模型草稿，不进入 DOM。工具调用与结果继续由 ProcessTrace 完整披露。
 const manual = ref<boolean | null>(null)
 const open = computed<boolean>(() => (manual.value !== null ? manual.value : !!props.block.streaming))
 function toggle(): void {
@@ -51,11 +50,7 @@ watch(() => props.block.streaming, (s) => {
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 
-// 折叠时的单行预览 (首行/截断)
-const preview = computed(() => {
-  const raw = (props.block.content || '').trim().replace(/\s+/g, ' ')
-  return raw.slice(0, 120)
-})
+const presentation = computed(() => thinkingPresentation(!!props.block.streaming))
 </script>
 
 <template>
@@ -74,15 +69,14 @@ const preview = computed(() => {
       <span
         class="v6-chip v6-chip--think"
         :class="{ 'v6-chip--live': props.block.streaming }"
-      >{{ props.block.streaming ? '思考中' : 'Thinking' }}</span>
-      <span class="v6-bprev">{{ preview }}</span>
+      >{{ presentation.label }}</span>
+      <span class="v6-bprev">{{ presentation.summary }}</span>
       <small v-if="props.block.runtime?.model" class="v6-bh__model">{{ props.block.runtime.model }}</small>
       <small v-if="thinkElapsed" class="v6-bh__tm">{{ thinkElapsed }}</small>
       <span class="v6-bchev">▶</span>
     </button>
     <div v-if="open" :id="bodyId" class="v6-bb">
-      <pre>{{ props.block.content
-        }}<span v-if="props.block.streaming" class="v6-think-caret" aria-hidden="true" /></pre>
+      <p>{{ presentation.disclosure }}</p>
     </div>
   </div>
 </template>
@@ -138,25 +132,8 @@ const preview = computed(() => {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-/* WS1: 逐 token 追加末尾打字态光标。Vue 对 block.content 的 delta 增量已自动重渲染
-   <pre>，此光标提供「正在写入」视觉锚点。 */
-.v6-think-caret {
-  display: inline-block;
-  width: 6px;
-  height: 1em;
-  margin-left: 1px;
-  vertical-align: text-bottom;
-  background: var(--dw-ac);
-  border-radius: 1px;
-  animation: v6-think-caret-blink 1s steps(2, start) infinite;
-}
-@keyframes v6-think-caret-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
 @media (prefers-reduced-motion: reduce) {
   .v6-chip--live { animation: none; }
-  .v6-think-caret { animation: none; opacity: 0.7; }
 }
 .v6-bprev {
   font-size: 11px;
@@ -185,12 +162,11 @@ const preview = computed(() => {
 .v6-bb {
   border-top: 1px solid var(--dw-bd);
 }
-.v6-bb pre {
+.v6-bb p {
   margin: 0;
   padding: 8px 10px 10px;
-  white-space: pre-wrap;
   color: var(--dw-mu);
   font-size: 12px;
-  font-family: var(--dw-mono);
+  line-height: 1.6;
 }
 </style>
