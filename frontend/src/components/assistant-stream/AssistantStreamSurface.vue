@@ -111,7 +111,6 @@
                 :failed="message.status === 'failed'"
                 :elapsed-ms="message.elapsed_ms"
                 :started-at-ms="message.started_at_ms"
-                :follow="autoScroll"
                 :actionable="blockActionable"
                 @block-action="(p) => emit('block-action', { action: p.action, block: p.block, message, index })"
               />

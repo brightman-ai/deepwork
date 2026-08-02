@@ -5,9 +5,9 @@ let traceSeq = 0
 <script setup lang="ts">
 // ProcessTrace：一次 AgentRun 的过程容器 —— 可逆披露。
 //
-// 运行中默认展开并持续生长（标题「正在处理 · Ns」，活计时）；完成后可收成一行
-// 「已处理 · XmYs」，最终答案在容器**外**照常可见；点击展开 = 原时序完整恢复
-// （段的 id/数量/顺序/内容全不变——折叠只是可见性状态，绝不是内容合并）。
+// 运行中默认保持一行（标题「正在处理 · Ns」、脉冲、过程摘要持续生长），避免把原始
+// 推理/检索计划倾倒进主对话；点击展开 = 原时序完整恢复。完成后仍是一行「已处理 ·
+// XmYs」，最终答案在容器**外**照常可见。折叠只是可见性状态，绝不是内容合并。
 //
 // 段一律经**同一个 blockRegistry** 渲染（ThinkingBlock / ToolGroupBlock / AgentBlock /
 // PermissionBlock / ErrorBlock…），零复制、零 provider 分支。
@@ -15,6 +15,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import type { AssistantBlock } from './types'
 import { blockRegistry } from './blockRegistry'
 import { formatRunDuration } from './runSplit'
+import { isProcessTraceOpen, type ProcessTraceIntent } from './processTraceDisclosure'
 import {
   PROCESS_TRACE_PAGING_THRESHOLD,
   earlierSegmentWindowStart,
@@ -25,7 +26,7 @@ import {
 
 const props = defineProps<{
   segments: AssistantBlock[]
-  /** 本轮仍在跑 → 展开生长 + 活计时。 */
+  /** 本轮仍在跑 → 标题脉冲 + 活计时，内容按用户意图披露。 */
   streaming?: boolean
   /** 需要人处理（审批/错误/等待）→ 强制展开，且不允许自动收口。 */
   attention?: boolean
@@ -40,41 +41,19 @@ const props = defineProps<{
   failed?: boolean
   /** 运行态起点（ms）。用于活计时。 */
   startedAtMs?: number
-  /**
-   * 用户是否仍跟在流尾。false = 他上滑在读历史 → 本轮完成时**不**自动收口
-   * （不抢走正在读的上下文；设计心理学：不制造布局突变）。
-   */
-  follow?: boolean
   actionable?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'block-action', payload: { action: string; block: AssistantBlock }): void }>()
 
-// expansion intent：auto = 跟随状态机；manual-* = 用户已表态，机器不得覆盖。
-type Intent = 'auto' | 'manual-open' | 'manual-collapsed'
-const intent = ref<Intent>('auto')
+// expansion intent：auto = 紧凑默认；manual-* = 用户已表态，机器不得覆盖。
+const intent = ref<ProcessTraceIntent>('auto')
 
-const open = computed<boolean>(() => {
-  if (props.attention) return true // attention 穿透一切折叠（含 manual-collapsed）
-  if (intent.value === 'manual-open') return true
-  if (intent.value === 'manual-collapsed') return false
-  return !!props.streaming // auto: 跑着就展开，完成即收口
-})
+const open = computed<boolean>(() => isProcessTraceOpen(intent.value, !!props.attention))
 
 function toggle(): void {
   intent.value = open.value ? 'manual-collapsed' : 'manual-open'
 }
-
-// 完成瞬间：仅 auto 且用户仍跟在流尾时才自动收口。否则把当前展开态**固化**为用户意图，
-// 免得他正读着过程、run 一结束内容就在眼皮底下塌掉。
-watch(
-  () => props.streaming,
-  (now, before) => {
-    if (before && !now && intent.value === 'auto' && props.follow === false) {
-      intent.value = 'manual-open'
-    }
-  },
-)
 
 // 活计时：运行中 200ms 推进（与 ThinkingBlock 同口径）。完成后走冻结的 elapsedMs，
 // 永不继续增长。两者都拿不到 → 不显示时长（诚实 —— 不伪造 0s）。
