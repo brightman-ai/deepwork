@@ -94,17 +94,9 @@ export interface DefaultSessionStrategyOptions {
    * present, an empty string is sent deliberately to clear a prior override. */
   approvalMode?: (() => string) | string
   /**
-   * W1 fix: per-turn outbound model id forwarded to input-events (`model`). This is the
-   * "切模型" signal — the backend reconciles it onto session.ModelID
-   * (applySessionModelEffortOverride) so the OUTBOUND model == the selected model even
-   * for a mid-session switch. OPTIONAL — adapters that don't pass it ⇒ '' ⇒ omitted, so
-   * the body is unchanged for callers that bake the model at create time only.
-   *
-   * Why this was missing: chat baked model_id at session create and was short-lived, so
-   * the create binding masked the gap. Workspace sessions are long-lived AND commonly
-   * leave the model on the runtime-default at create (model_id=''), so the picked model
-   * NEVER reached dispatch — selector/badge changed but outbound stayed the account
-   * default (W1: "选 GLM 自报 GPT-3.5"). Sending the resolved model per-turn closes both.
+   * Per-turn outbound model selection. Presence is semantic: when this option exists,
+   * an empty string is sent deliberately and means "follow the runtime default". When
+   * the option itself is absent, `model` is omitted and the session binding is unchanged.
    */
   model?: (() => string) | string
   /**
@@ -115,8 +107,8 @@ export interface DefaultSessionStrategyOptions {
    * model on a DIFFERENT provider (deepseek-chat → glm-4-flash) sent the new model to the
    * OLD provider's endpoint (400). Sending the resolved account per-turn lets the backend
    * reconcile it onto session.ProviderAccountID so endpoint AND model move together.
-   * OPTIONAL — adapters that don't pass it (or that dispatch via CLI/subscription, whose
-   * account is legitimately empty) ⇒ '' ⇒ omitted ⇒ backend keeps the create binding.
+   * Presence is semantic here too: an explicit empty value selects the CLI/subscription
+   * account; an absent option leaves the existing session binding untouched.
    */
   providerAccountId?: (() => string) | string
   /**
@@ -332,15 +324,6 @@ export class DefaultSessionStrategy implements SessionStrategy {
       memory_on: memoryOn,
       // CHG-015: chat selectors — omitted when empty so ws/topic/claw are unaffected.
       role_id: roleId || undefined,
-      // W1 fix: per-turn outbound model — omitted when empty (callers that bake the
-      // model at create time send none). The backend reconciles it onto session.ModelID
-      // so a mid-session 切模型 actually changes the outbound model.
-      model: model || undefined,
-      // 跨 provider 切模型 fix: the account that backs `model`. The backend reconciles
-      // it onto session.ProviderAccountID so the outbound ENDPOINT moves with the model
-      // (else a model on a different provider hits the old provider's endpoint → 400).
-      // Omitted when empty (CLI/subscription dispatch + create-time-baked callers).
-      provider_account_id: providerAccountId || undefined,
       vision_assist_model_id: visionAssistModelId || undefined,
       // CHG-015 需求8: image attachments — omitted when empty (ws/topic/claw send none).
       images: images.length ? images : undefined,
@@ -348,6 +331,8 @@ export class DefaultSessionStrategy implements SessionStrategy {
     // Presence is semantic: callers that own these controls must be able to clear
     // them back to the runtime default with an explicit empty value. Callers that
     // do not own the controls omit the keys entirely.
+    if (this.opts.model !== undefined) body.model = model
+    if (this.opts.providerAccountId !== undefined) body.provider_account_id = providerAccountId
     if (this.opts.effort !== undefined) body.effort = effort
     if (this.opts.approvalMode !== undefined) body.approval_mode = approvalMode
     return { url: `/api/sessions/${sessionId}/input-events`, body }

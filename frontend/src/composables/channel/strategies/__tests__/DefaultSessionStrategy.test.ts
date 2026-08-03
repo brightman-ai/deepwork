@@ -6,23 +6,33 @@ describe('DefaultSessionStrategy dispatch controls', () => {
   it('forwards approval and preserves explicit empty controls', () => {
     const effort = ref('')
     const approval = ref('plan')
+    const model = ref('deepseek-chat')
+    const account = ref('deepseek-main')
     const strategy = new DefaultSessionStrategy({
       sessionIdRef: ref(42),
       activeRef: ref(true),
       createPayload: {},
       effort: () => effort.value,
       approvalMode: () => approval.value,
+      model: () => model.value,
+      providerAccountId: () => account.value,
     })
 
     expect(strategy.buildRequest(42, 'hello').body).toMatchObject({
       effort: '',
       approval_mode: 'plan',
+      model: 'deepseek-chat',
+      provider_account_id: 'deepseek-main',
     })
 
     approval.value = ''
+    model.value = ''
+    account.value = ''
     expect(strategy.buildRequest(42, 'again').body).toMatchObject({
       effort: '',
       approval_mode: '',
+      model: '',
+      provider_account_id: '',
     })
   })
 
@@ -35,5 +45,7 @@ describe('DefaultSessionStrategy dispatch controls', () => {
     const body = strategy.buildRequest(42, 'hello').body
     expect(Object.prototype.hasOwnProperty.call(body, 'effort')).toBe(false)
     expect(Object.prototype.hasOwnProperty.call(body, 'approval_mode')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(body, 'model')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(body, 'provider_account_id')).toBe(false)
   })
 })

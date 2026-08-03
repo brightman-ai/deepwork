@@ -19,27 +19,28 @@
 
 :root {
   /* ── layer 1: v6 primitives ──────────────────────────────────────────── */
-  --dw-bg: #0d0d0f;         /* app canvas */
-  --dw-sf: #141416;         /* surface 1: rail / topbar / cards */
-  --dw-sf2: #1c1c1f;        /* surface 2: hover / inset boxes */
-  --dw-sf3: #232327;        /* surface 3: active / popover */
+  --dw-bg: #0d0d0f; /* app canvas */
+  --dw-sf: #141416; /* surface 1: rail / topbar / cards */
+  --dw-sf2: #1c1c1f; /* surface 2: hover / inset boxes */
+  --dw-sf3: #232327; /* surface 3: active / popover */
   --dw-fg: #e8e8ec;
-  --dw-mu: #6b6b72;         /* muted text */
-  --dw-bd: #252528;         /* borders */
-  --dw-on-accent: #0d0d0f;  /* text on solid accent fills */
+  --dw-mu: #6b6b72; /* muted text */
+  --dw-fg-muted: #a1a1aa; /* readable secondary copy (AA on --dw-sf/--dw-sf2) */
+  --dw-bd: #252528; /* borders */
+  --dw-on-accent: #0d0d0f; /* text on solid accent fills */
 
-  --dw-ac: oklch(72% 0.14 55);            /* amber — the only accent */
+  --dw-ac: oklch(72% 0.14 55); /* amber — the only accent */
   --dw-ac-dim: oklch(72% 0.14 55 / 0.14);
   --dw-ok: oklch(70% 0.12 158);
   --dw-ok-dim: oklch(70% 0.12 158 / 0.14);
   --dw-warn: oklch(74% 0.12 62);
   --dw-warn-dim: oklch(74% 0.12 62 / 0.12);
-  --dw-blu: oklch(68% 0.12 245);          /* unread / links only */
+  --dw-blu: oklch(68% 0.12 245); /* unread / links only */
   --dw-blu-dim: oklch(68% 0.12 245 / 0.14);
   --dw-red: oklch(64% 0.17 25);
   --dw-red-dim: oklch(64% 0.17 25 / 0.12);
   --dw-pur: oklch(70% 0.11 300);
-  --dw-pur-dim: oklch(70% 0.11 300 / 0.10);
+  --dw-pur-dim: oklch(70% 0.11 300 / 0.1);
 
   /* ── semantic alpha tokens (CHG-014 S8 F9) ───────────────────────────────
      -dim 已是「填充底」(≈0.10-0.14)。新增两族补流习语块用色，组件只引 token、
@@ -48,27 +49,31 @@
        *-surface-dim   = 极淡填充底 (≈0.07-0.10 alpha)，比 -dim 更轻
      与 layer-2 shadcn 三元保持同一调色板，编辑时两层同步。 */
   --dw-ac-border-dim: oklch(72% 0.14 55 / 0.3);
-  --dw-ac-border-focus: oklch(72% 0.14 55 / 0.5);   /* composer focus ring 边 */
+  --dw-ac-border-focus: oklch(72% 0.14 55 / 0.5); /* composer focus ring 边 */
   --dw-warn-border-dim: oklch(74% 0.12 62 / 0.4);
   --dw-warn-surface-dim: oklch(74% 0.12 62 / 0.07);
-  --dw-warn-chip-dim: oklch(74% 0.12 62 / 0.12);    /* appr chip 底 */
+  --dw-warn-chip-dim: oklch(74% 0.12 62 / 0.12); /* appr chip 底 */
   --dw-blu-border-dim: oklch(68% 0.12 245 / 0.35);
-  --dw-ok-surface-dim: oklch(70% 0.12 158 / 0.10);
+  --dw-ok-surface-dim: oklch(70% 0.12 158 / 0.1);
   --dw-red-border-dim: oklch(64% 0.17 25 / 0.4);
-  --dw-red-surface-dim: oklch(64% 0.17 25 / 0.10);
-  --dw-pur-surface-dim: oklch(70% 0.11 300 / 0.10);
-  --dw-warn-border-soft: oklch(74% 0.12 62 / 0.45); /* envchip warn 边（比 -border-dim 略实）*/
+  --dw-red-surface-dim: oklch(64% 0.17 25 / 0.1);
+  --dw-pur-surface-dim: oklch(70% 0.11 300 / 0.1);
+  --dw-warn-border-soft: oklch(
+    74% 0.12 62 / 0.45
+  ); /* envchip warn 边（比 -border-dim 略实）*/
   --dw-warn-surface-soft: oklch(74% 0.12 62 / 0.08);
-  --dw-blu-hover-dim: oklch(68% 0.12 245 / 0.24);   /* fref chip hover 底 */
-  --dw-shadow-pop: 0 6px 18px oklch(0% 0 0 / 0.5);  /* popover/scroll-btn 投影 */
+  --dw-blu-hover-dim: oklch(68% 0.12 245 / 0.24); /* fref chip hover 底 */
+  --dw-shadow-pop: 0 6px 18px oklch(0% 0 0 / 0.5); /* popover/scroll-btn 投影 */
 
   --dw-heat-hi: #fe7a15;
   --dw-heat-md: #cf7721;
   --dw-heat-lo: #9b764f;
 
   /* keep in exact sync with tailwind.config.js fontFamily (sans/mono) */
-  --dw-font: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', system-ui, 'Segoe UI', sans-serif;
-  --dw-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  --dw-font:
+    -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, "Segoe UI",
+    sans-serif;
+  --dw-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 
   --dw-r: 5px;
   --dw-r2: 8px;
@@ -116,30 +121,30 @@
      LIGHT scrollbar chrome → a bright-white gutter on the right of dark panels
      (e.g. share 总览面板 overflow container). */
   color-scheme: dark;
-  --background: 240 7% 5.5%;          /* --dw-bg  */
-  --foreground: 240 10% 92%;          /* --dw-fg  */
-  --card: 240 5% 8.2%;                /* --dw-sf  */
+  --background: 240 7% 5.5%; /* --dw-bg  */
+  --foreground: 240 10% 92%; /* --dw-fg  */
+  --card: 240 5% 8.2%; /* --dw-sf  */
   --card-foreground: 240 10% 92%;
-  --popover: 240 5% 11.6%;            /* --dw-sf2 */
+  --popover: 240 5% 11.6%; /* --dw-sf2 */
   --popover-foreground: 240 10% 92%;
-  --primary: 26 77% 59%;              /* --dw-ac  */
-  --primary-foreground: 240 7% 5%;    /* dark text on amber */
-  --secondary: 240 5% 11.6%;          /* --dw-sf2 */
+  --primary: 26 77% 59%; /* --dw-ac  */
+  --primary-foreground: 240 7% 5%; /* dark text on amber */
+  --secondary: 240 5% 11.6%; /* --dw-sf2 */
   --secondary-foreground: 240 10% 92%;
-  --muted: 240 5% 11.6%;              /* --dw-sf2 */
-  --muted-foreground: 240 3% 43%;     /* --dw-mu  */
-  --accent: 240 5% 14.5%;             /* --dw-sf3 — hover/active surface */
+  --muted: 240 5% 11.6%; /* --dw-sf2 */
+  --muted-foreground: 240 3% 43%; /* --dw-mu  */
+  --accent: 240 5% 14.5%; /* --dw-sf3 — hover/active surface */
   --accent-foreground: 240 10% 92%;
-  --destructive: 2 70% 61%;          /* --dw-red */
+  --destructive: 2 70% 61%; /* --dw-red */
   --destructive-foreground: 240 7% 5%;
-  --border: 240 4% 15%;               /* --dw-bd  */
+  --border: 240 4% 15%; /* --dw-bd  */
   --input: 240 4% 15%;
   --ring: 26 77% 59%;
-  --sidebar-background: 240 5% 8.2%;  /* --dw-sf  */
-  --sidebar-foreground: 240 3% 43%;   /* --dw-mu  */
+  --sidebar-background: 240 5% 8.2%; /* --dw-sf  */
+  --sidebar-foreground: 240 3% 43%; /* --dw-mu  */
   --sidebar-primary: 26 77% 59%;
   --sidebar-primary-foreground: 240 7% 5%;
-  --sidebar-accent: 240 5% 11.6%;     /* --dw-sf2 */
+  --sidebar-accent: 240 5% 11.6%; /* --dw-sf2 */
   --sidebar-accent-foreground: 240 10% 92%;
   --sidebar-border: 240 4% 15%;
   --sidebar-ring: 26 77% 59%;
