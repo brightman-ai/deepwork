@@ -257,7 +257,8 @@ const clock = computed(() => {
   margin-top: 8px;
   font-family: var(--dw-mono);
   font-size: 10.5px;
-  color: var(--dw-mu);
+  /* TTFT/耗时/token 是内容数据不是装饰 —— 用 AA 级次级文本，--dw-mu(≈3.4:1) 太暗 */
+  color: var(--dw-fg-muted);
   min-height: 22px;
 }
 .v6-rmeta__t { display: inline; }
@@ -275,8 +276,8 @@ const clock = computed(() => {
   opacity: 0.45;
 }
 .v6-rmeta__vol {
-  opacity: 0.6;
-  font-size: 8px;
+  opacity: 0.9;
+  font-size: 9.5px;
   vertical-align: 3px;
   margin-left: 1px;
   font-style: normal;

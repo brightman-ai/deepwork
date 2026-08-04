@@ -27,6 +27,57 @@ withDefaults(
 const emit = defineEmits<{
   (e: "pick", columnIndex: number, value: string): void;
 }>();
+
+// Grid keyboard semantics (ARIA listbox/grid): ↑↓ move within a column (wrap),
+// ←→ move across columns (same row, clamped), Home/End jump to column ends.
+// Enter/Space activate natively (rows are <button>). Esc is the parent's job.
+function onKeydown(ev: KeyboardEvent): void {
+  const key = ev.key;
+  if (
+    key !== "ArrowDown" &&
+    key !== "ArrowUp" &&
+    key !== "ArrowLeft" &&
+    key !== "ArrowRight" &&
+    key !== "Home" &&
+    key !== "End"
+  )
+    return;
+  const root = ev.currentTarget as HTMLElement;
+  const cols = Array.from(root.querySelectorAll<HTMLElement>(".v6-msel-col"));
+  if (!cols.length) return;
+  const itemsOf = (col: HTMLElement) =>
+    Array.from(col.querySelectorAll<HTMLButtonElement>(".v6-msel-it"));
+  ev.preventDefault();
+  let ci = -1;
+  let ii = -1;
+  cols.forEach((col, x) => {
+    const i = itemsOf(col).indexOf(document.activeElement as HTMLButtonElement);
+    if (i >= 0) {
+      ci = x;
+      ii = i;
+    }
+  });
+  if (ci < 0) {
+    const last = key === "ArrowUp" || key === "ArrowLeft" || key === "End";
+    const items = itemsOf(cols[last ? cols.length - 1 : 0]);
+    (last ? items[items.length - 1] : items[0])?.focus();
+    return;
+  }
+  const items = itemsOf(cols[ci]);
+  if (key === "ArrowDown") items[(ii + 1) % items.length]?.focus();
+  else if (key === "ArrowUp")
+    items[(ii - 1 + items.length) % items.length]?.focus();
+  else if (key === "Home") items[0]?.focus();
+  else if (key === "End") items[items.length - 1]?.focus();
+  else {
+    const nc =
+      key === "ArrowRight"
+        ? (ci + 1) % cols.length
+        : (ci - 1 + cols.length) % cols.length;
+    const ni = itemsOf(cols[nc]);
+    ni[Math.min(ii, ni.length - 1)]?.focus();
+  }
+}
 </script>
 
 <template>
@@ -34,6 +85,7 @@ const emit = defineEmits<{
     class="v6-mselpop"
     :class="{ 'v6-mselpop--on': open }"
     data-testid="v6-msel-pop"
+    @keydown="onKeydown"
   >
     <div
       v-for="(col, ci) in columns"
@@ -115,8 +167,10 @@ const emit = defineEmits<{
   color: var(--dw-fg);
 }
 .v6-msel-it:focus-visible {
-  outline: 2px solid var(--dw-ac);
-  outline-offset: -2px;
+  /* focus ≠ selected: the ring is neutral and sits OUTSIDE the row, so it reads
+     on plain rows and on the accent-tinted selected row alike. */
+  outline: 2px solid var(--dw-focus-ring, #f4f4f5);
+  outline-offset: 1px;
 }
 .v6-msel-it.on {
   background: var(--dw-ac-dim);

@@ -26,6 +26,7 @@
   --dw-fg: #e8e8ec;
   --dw-mu: #6b6b72; /* muted text */
   --dw-fg-muted: #a1a1aa; /* readable secondary copy (AA on --dw-sf/--dw-sf2) */
+  --dw-focus-ring: #f4f4f5; /* keyboard focus ring — neutral, reads on plain AND accent-tinted rows */
   --dw-bd: #252528; /* borders */
   --dw-on-accent: #0d0d0f; /* text on solid accent fills */
 

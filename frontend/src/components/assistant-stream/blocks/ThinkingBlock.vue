@@ -137,7 +137,7 @@ const presentation = computed(() => thinkingPresentation(!!props.block.streaming
 }
 .v6-bprev {
   font-size: 11px;
-  color: var(--dw-mu);
+  color: var(--dw-fg-muted);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -165,7 +165,8 @@ const presentation = computed(() => thinkingPresentation(!!props.block.streaming
 .v6-bb p {
   margin: 0;
   padding: 8px 10px 10px;
-  color: var(--dw-mu);
+  /* 展开的思考正文是阅读内容 —— AA 级次级文本，--dw-mu(≈3.4:1) 需眯眼 */
+  color: var(--dw-fg-muted);
   font-size: 12px;
   line-height: 1.6;
 }
