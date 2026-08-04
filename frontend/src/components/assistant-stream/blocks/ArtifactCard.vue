@@ -54,7 +54,13 @@ const emit = defineEmits<{
 }
 .v6-artcard:hover { border-color: var(--dw-mu); }
 .v6-artcard__ic { flex-shrink: 0; }
-.v6-artcard__name { font-size: 12px; }
+.v6-artcard__name {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .v6-artcard__bd {
   font-size: 9px;
   padding: 1px 6px;
@@ -69,6 +75,8 @@ const emit = defineEmits<{
 .v6-artcard__done:disabled { opacity: 0.5; cursor: not-allowed; }
 .v6-artcard__openw {
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 5px;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // CHG-014 D2/J3: 新增 qbanner 问题横幅 (原型 1298/1326, OD 特有)。
-// 未答 → 琥珀蓝边可点 (→ 右栏问题 tab)；已答 → 灰静默不可点。
+// 未答 → 琥珀蓝边可点 (→ 问题表单；文案不写死布局 —— 移动端没有「右栏」)；已答 → 灰静默不可点。
 import { computed } from 'vue'
 import type { AssistantBlock } from '../types'
 
@@ -28,7 +28,7 @@ const interactive = computed(() => !props.block.answered && props.actionable)
   >
     <span class="v6-qbanner__mark">？</span>
     <span class="v6-qbanner__txt">{{ props.block.text }}</span>
-    <b class="v6-qbanner__go">前往右栏 →</b>
+    <b class="v6-qbanner__go">去回答 →</b>
   </button>
   <div
     v-else
