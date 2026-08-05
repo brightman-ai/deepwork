@@ -125,6 +125,13 @@
               <div v-if="terminalNoticeOf(message)" class="as-terminal" data-testid="assistant-terminal-notice">
                 {{ terminalNoticeOf(message) }}
               </div>
+              <!-- B1 (ws-witness r6): agentic 轮全程黑屏 = 过程收进 trace 后主层零活体。
+                   正在跑且还没有最终答复时，主层给出可见的等待态。 -->
+              <WaitingBlock
+                v-else-if="isLive(message, index) && !runSplitOf(message).final.length"
+                :block="{ type: 'waiting', status: waitingStatus, startedAt: message.started_at_ms ?? streamingStartedAt }"
+                :streaming="true"
+              />
             </template>
             <template v-else>
               <template
@@ -147,6 +154,15 @@
                 />
               </template>
             </template>
+            <!-- 平铺路径同样要诚实终态（chat/od 等未开 processTrace 的消费点）：
+                 主动停止/失败/无输出不能在主层无声。 -->
+            <div
+              v-if="message.role === 'assistant' && !processTrace && terminalNoticeOf(message)"
+              class="as-terminal"
+              data-testid="assistant-terminal-notice"
+            >
+              {{ terminalNoticeOf(message) }}
+            </div>
             <slot
               v-if="message.role === 'assistant'"
               name="assistantActions"

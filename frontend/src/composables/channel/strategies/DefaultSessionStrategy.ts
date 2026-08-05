@@ -93,6 +93,8 @@ export interface DefaultSessionStrategyOptions {
   /** CLI permission/approval mode forwarded to input-events. When this option is
    * present, an empty string is sent deliberately to clear a prior override. */
   approvalMode?: (() => string) | string
+  /** CHG-019: whale 联网开关 forwarded to input-events ('on'/'off'). Optional. */
+  network?: (() => string) | string
   /**
    * Per-turn outbound model selection. Presence is semantic: when this option exists,
    * an empty string is sent deliberately and means "follow the runtime default". When
@@ -258,6 +260,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
   private get memoryOn() { return resolveValue(this.opts.memoryOn) }
   private get roleId() { return resolveValue(this.opts.roleId) ?? '' }
   private get effort() { return resolveValue(this.opts.effort) ?? '' }
+  private get network() { return resolveValue(this.opts.network) ?? '' }
   private get approvalMode() { return resolveValue(this.opts.approvalMode) ?? '' }
   private get model() { return resolveValue(this.opts.model) ?? '' }
   private get providerAccountId() { return resolveValue(this.opts.providerAccountId) ?? '' }
@@ -313,6 +316,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
     const roleId = this.roleId
     const effort = this.effort
     const approvalMode = this.approvalMode
+    const network = this.network
     const model = this.model
     const providerAccountId = this.providerAccountId
     const visionAssistModelId = this.visionAssistModelId
@@ -335,6 +339,7 @@ export class DefaultSessionStrategy implements SessionStrategy {
     if (this.opts.providerAccountId !== undefined) body.provider_account_id = providerAccountId
     if (this.opts.effort !== undefined) body.effort = effort
     if (this.opts.approvalMode !== undefined) body.approval_mode = approvalMode
+    if (this.opts.network !== undefined) body.network = network
     return { url: `/api/sessions/${sessionId}/input-events`, body }
   }
 

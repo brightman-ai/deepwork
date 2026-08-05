@@ -194,6 +194,13 @@ export function useWorkstreamController(opts: WorkstreamControllerOptions): Work
       abortController = null
       streaming.value = false
       waitingStatus.value = '已中断'
+      // 用户主动停止 = 诚实终态标记（runStatus:'interrupted' → 时间线渲染中性「已停止」，
+      // 而不是戛然而止像断线）。terminalNotice 已有该映射，这里只补事实。
+      const last = messages.value[messages.value.length - 1]
+      if (last && last.role === 'assistant') {
+        last.streaming = false
+        last.runStatus = 'interrupted'
+      }
     }
   }
 
