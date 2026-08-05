@@ -241,6 +241,14 @@ function applyWorkstreamEvent(
     case 'done': {
       if (current) {
         current.streaming = false
+        // CHG-019: 终态事实落 runStatus —— 用户中断/取消的轮次渲染中性「已停止」，
+        // 不与正常完成混同（ws r8 witness: 停止后轮次与完成轮无法区分）。
+        const reason = String(
+          (event.done && (event.done as Record<string, unknown>).reason) ?? '',
+        ).toLowerCase()
+        if (reason.includes('cancel') || reason.includes('interrupt')) {
+          current.runStatus = 'interrupted'
+        }
         current.elapsed_ms = elapsedFrom(event, options)
         const blocks = removeWaitingBlocks(current.blocks ?? [])
         settleThinking(blocks, options.now) // turn done → any lingering thinking block collapses + freezes
