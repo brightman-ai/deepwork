@@ -185,7 +185,8 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
     canceled,
     hasVisibleOutput: blocks.length > 0,
   })
-  if (gap) blocks.push({ type: 'error', message: gap, retryable: false })
+  // 主动停止 ≠ 错误：取消轮不渲染红色错误块，runStatus=interrupted 驱动中性「已停止」。
+  if (gap && !canceled) blocks.push({ type: 'error', message: gap, retryable: false })
   // A turn with ONLY reasoning still renders (blocks now holds a thinking block).
   if (!blocks.length && !turn.ai_output) return null
   // CHG-014 D5① — restore the completed-state footer usage from the persisted
@@ -207,7 +208,8 @@ function historyAssistantMessage(turn: HistoryTurn, turnNo: number): AssistantMe
     // 时钟(时间): the turn's start, so the footer clock matches live/replay instead of「—」.
     ...(startedAtMs !== undefined ? { started_at_ms: startedAtMs } : {}),
     ...(usage ? { usage } : {}),
-    status: turn.status === 'failed' || canceled ? 'failed' : 'normal',
+    status: turn.status === 'failed' ? 'failed' : 'normal',
+    runStatus: canceled ? 'interrupted' : undefined,
     error: turn.error,
   }
 }
