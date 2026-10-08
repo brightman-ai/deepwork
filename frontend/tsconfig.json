@@ -13,16 +13,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@ce/*": ["src/*"],
-      "vue": ["node_modules/vue"],
-      "vue-router": ["node_modules/vue-router"],
-      "@vueuse/core": ["node_modules/@vueuse/core"],
-      "lucide-vue-next": ["node_modules/lucide-vue-next"],
-      "reka-ui": ["node_modules/reka-ui"],
-      "clsx": ["node_modules/clsx"],
-      "tailwind-merge": ["node_modules/tailwind-merge"],
-      "class-variance-authority": ["node_modules/class-variance-authority"],
-      "@radix-icons/vue": ["node_modules/@radix-icons/vue"]
+      "@ce/*": ["src/*"]
     },
     "strict": true,
     "noUnusedLocals": true,
