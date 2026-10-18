@@ -15,6 +15,7 @@ import { Activity, Clock, MessageSquare, Cpu, Hash, Snowflake, Copy, Check } fro
 import { createTrace, createLogger } from '@ce/utils/obs'
 import type { SessionDetail, TurnsSummary, Turn, UnitPrice } from '@ce/types/sessionMetrics'
 import { copyTextToClipboard } from '@ce/utils/clipboard'
+import { outputStageTps, modelTps as deriveModelTps } from './sessionMetricsMath'
 
 interface Props {
   /** 会话详情 (状态/模型/turn_count/ended_at)。null → 空态。 */
@@ -173,57 +174,13 @@ const ttftLatest = computed<number | null>(() => {
 // 公式 = output_tokens / ((duration_ms - ttft_ms) / 1000)，逐轮汇总:
 //   生成段毫秒 = Σ(duration_ms - ttft_ms)，仅取 duration/ttft/output 三者俱全且
 //   duration>ttft 的 turn (诚实: 缺任一源 → 不计入)。无任何可计 turn → null →「—」。
-const outputTps = computed<number | null>(() => {
-  let genMs = 0
-  let outTok = 0
-  let any = false
-  for (const t of turns.value) {
-    const d = t.duration_ms
-    const ttft = t.ttft_ms
-    const o = t.output_tokens
-    if (typeof d !== 'number' || typeof ttft !== 'number' || typeof o !== 'number') continue
-    if (o <= 0) continue
-    const gen = d - ttft
-    if (gen <= 0) continue
-    genMs += gen
-    outTok += o
-    any = true
-  }
-  if (!any || genMs <= 0) return null
-  return outTok / (genMs / 1000)
-})
+const outputTps = computed<number | null>(() => outputStageTps(turns.value))
 
 // 真·Model TPS — 纯模型生成速度 (首 token→末 token 输出窗口, 不含每轮开销)。
 // 公式 = Σoutput_tokens / (Σoutput_window_ms / 1000)。优先后端 summary (权威);
 // 缺失时退回逐 turn 聚合。无任何窗口 (codex / 非 PTY) → null →「—」。
 // 合理性钳: 当前所有 runtime 峰值解码 < ~600 tok/s。超此 = 窗口测量伪影 → 显「—」。
-const MODEL_TPS_PLAUSIBLE_MAX = 600
-function plausibleTps(v: number | null): number | null {
-  return v != null && v > 0 && v <= MODEL_TPS_PLAUSIBLE_MAX ? v : null
-}
-const modelTps = computed<number | null>(() => {
-  const s = summary.value
-  if (s) {
-    const win = s.output_window_ms
-    const tok = s.output_tokens
-    if (win == null || tok == null || win <= 0 || tok <= 0) return null
-    return plausibleTps(tok / (win / 1000))
-  }
-  let winMs = 0
-  let outTok = 0
-  let any = false
-  for (const t of turns.value) {
-    const w = t.output_window_ms
-    const o = t.output_tokens
-    if (typeof w !== 'number' || typeof o !== 'number') continue
-    if (w <= 0 || o <= 0) continue
-    winMs += w
-    outTok += o
-    any = true
-  }
-  if (!any || winMs <= 0) return null
-  return plausibleTps(outTok / (winMs / 1000))
-})
+const modelTps = computed<number | null>(() => deriveModelTps(summary.value, turns.value))
 function fmtTok(n: number | null): string {
   if (n === null) return '—'
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
